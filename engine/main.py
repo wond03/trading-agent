@@ -47,7 +47,7 @@ def fetch_candles(client, inst_id, limit=300):
 
 def run_once():
     state = load_state()
-    today = datetime.date.today().isoformat()
+    today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).date().isoformat()
     if state["daily"]["date"] != today:
         state["daily"] = {"date": today, "trades": 0}
 
@@ -116,7 +116,7 @@ def run_once():
     save_state(state)
 
     # ---- 汇总报告 ----
-    header = f"**📡 盯盘巡检 {datetime.datetime.now().strftime('%m-%d %H:%M')}**"
+    header = f"**📡 盯盘巡检 {(datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime('%m-%d %H:%M')} (北京时间)**"
     body = "\n\n".join(reports) if reports else "无新信号, 持仓平稳"
     push(f"{header}\n\n{body}")
 
