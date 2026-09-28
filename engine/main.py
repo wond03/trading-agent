@@ -16,12 +16,13 @@ WECOM = os.environ.get(C.WECOM_WEBHOOK_ENV, "")
 DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
 
 def push(text):
+    print("=== 推送内容 ===\n" + text + "\n=== 结束 ===")   # 同时打印到日志(便于云端诊断)
     if not WECOM:
-        print("[企微未配置]\n" + text); return
+        print("[企微未配置]"); return
     try:
         import requests
-        requests.post(WECOM, json={"msgtype": "markdown", "markdown": {"content": text}}, timeout=8)
-        print("[已推送企微]")
+        r = requests.post(WECOM, json={"msgtype": "markdown", "markdown": {"content": text}}, timeout=8)
+        print(f"[已推送企微] code={r.status_code}")
     except Exception as e:
         print(f"[推送失败] {e}")
 
