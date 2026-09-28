@@ -1,0 +1,29 @@
+name: trading-agent
+on:
+  schedule:
+    - cron: '0 * * * *'      # 每小时整点(UTC); 北京时间8点起. 可改 '0 */2 * * *' 降频
+  workflow_dispatch: {}       # 手动触发按钮(首次验证用)
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 恢复状态文件
+        uses: actions/cache@v4
+        with:
+          path: engine/state.json
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+      - name: 安装依赖
+        run: pip install requests
+      - name: 运行盯盘引擎
+        env:
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          DRY_RUN: "1"          # 首次先只告警不下单; 验证无误后改 "0" 启用模拟盘下单
+        run: python engine/main.py
