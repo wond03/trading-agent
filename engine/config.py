@@ -4,9 +4,19 @@
 
 # ---------- 品种与周期 ----------
 SYMBOLS = {
-    "BTC-USDT-SWAP": {"enabled": True, "modules": ["structure", "liquidity", "entry", "funding"], "td_mode": "cross"},
-    "PAXG-USDT":     {"enabled": True, "modules": ["structure", "liquidity", "entry"], "td_mode": "cash"},  # XAU用PAXG代理(OKX现货,与现货金价差<0.1%)
+    "BTC-USDT-SWAP": {"enabled": True, "modules": ["structure", "liquidity", "entry", "funding"], "td_mode": "isolated"},
+    "XAU-USDT-SWAP": {"enabled": True, "modules": ["structure", "liquidity", "entry"], "td_mode": "isolated"},  # 黄金合约(云端实测存在,100倍)
 }
+# 合约规格(2026-09-30 云端实测 OKX /public/instruments)
+INST_SPECS = {
+    "BTC-USDT-SWAP": {"ctVal": 0.01,  "lotSz": 0.01, "minSz": 0.01},
+    "XAU-USDT-SWAP": {"ctVal": 0.001, "lotSz": 1,    "minSz": 1},
+}
+# ---------- 仓位模式(用户指定): 固定保证金 × 固定杠杆 ----------
+MARGIN_PER_TRADE = 5.0      # 每单保证金 5 USDT
+LEVERAGE_FIXED = 100        # 固定 100 倍
+LIQ_BUFFER_PCT = 0.003      # 爆仓线前 0.3% 强平(等效止损, 避免爆仓罚金)
+MMR_ESTIMATE = 0.005        # 维持保证金率估算(100倍档约0.4%~0.5%)
 BASE_TF = "1H"        # 主分析周期 (规则A7: 做1H看4H; 做5m看1H)
 HTF = "4H"            # 高一级周期 (只推一级, 规则A6)
 TIMEFRAME_SECONDS = {"1H": 3600, "4H": 14400, "15m": 900, "5m": 300}
