@@ -14,6 +14,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
 WECOM = os.environ.get(C.WECOM_WEBHOOK_ENV, "")
 DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
+CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "10000"))   # 账户资金(可用 GitHub Secrets 覆盖)
 
 def push(text):
     print("=== 推送内容 ===\n" + text + "\n=== 结束 ===")   # 同时打印到日志(便于云端诊断)
@@ -47,7 +48,7 @@ def fetch_candles(client, inst_id, limit=300):
 
 def run_once():
     state = load_state()
-    now_bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<50分钟则跳过 (应对高频调度; GitHub调度实际执行率低)
     last = state.get("last_run_ts", 0)
     if time.time() - last < 50 * 60:
@@ -59,7 +60,7 @@ def run_once():
         state["daily"] = {"date": today, "trades": 0}
 
     client = OkxClient(simulated=True)
-    risk = RiskManager(capital_usd=10000, risk_score=3)
+    risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
     risk.daily_trades = state["daily"]["trades"]
     reports = []
 
@@ -77,9 +78,15 @@ def run_once():
         htf = "up" if candles[-1].close > candles[-50].close else "down"
         px = candles[-1].close
 
-        # ---- 新信号检测 ----
+        # ---- 新信号检测 (含指纹去重: 同一信号只推一次) ----
         ee = EntryEngine()
         sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles)-1)
+        if sig:
+            # 指纹用稳定特征: 品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
+            fp = f"{inst_id}|{sig.direction}|{round(sig.sl / 10) * 10}"
+            if fp in state.get("pushed_signals", []):
+                print(f"[跳过重复信号] {fp}")
+                sig = None
         if sig:
             ok, detail = risk.check_gates(sig)
             if ok:
@@ -94,21 +101,30 @@ def run_once():
                     if resp.get("code") == "0":
                         state["positions"].append({"inst": inst_id, "direction": sig.direction,
                                                    "entry": sig.entry, "sl": sig.sl, "tp": sig.tp,
-                                                   "size": size["qty"], "opened": int(time.time())})
+                                                   "size": size["qty"], "ratio": 1.0,
+                                                   "risk_free": False, "tp1_hit": False,
+                                                   "opened": int(time.time())})
                         state["daily"]["trades"] += 1
                 else:
                     line += "\n(DRY_RUN 未实际下单)"
                 reports.append(line)
             else:
                 reports.append(f"**{inst_id} 信号被风控拦截**\n" + "\n".join(f"  {d}" for d in detail))
+            # 记录指纹(去重), 保留最近60条
+            state.setdefault("pushed_signals", []).append(fp)
+            state["pushed_signals"] = state["pushed_signals"][-60:]
 
-        # ---- 持仓管理 (出场引擎) ----
+        # ---- 持仓管理 (出场引擎; 完整恢复状态, 修复Bug2) ----
         for p in list(state["positions"]):
             if p["inst"] != inst_id:
                 continue
-            pos = Position(p["direction"], p["entry"], p["sl"], p["tp"], opened_bar=0)
+            pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
+                           size=p.get("ratio", 1.0), opened_bar=0)
+            pos.risk_free = p.get("risk_free", False)
+            pos.tp1_hit = p.get("tp1_hit", False)
             xe = ExitEngine()
             acts = xe.manage(pos, candles, se, le)
+            exited = False
             for act in acts:
                 if act[0] == "EXIT":
                     reports.append(f"**{inst_id} 出场** {act[1]} (entry={p['entry']:.1f})")
@@ -116,9 +132,27 @@ def run_once():
                         side = "sell" if p["direction"] == "long" else "buy"
                         client.close_position(inst_id, side, p["size"], td_mode=sym_cfg.get("td_mode", "cross"))
                     state["positions"].remove(p)
+                    exited = True
+                    break
+                elif act[0] == "PARTIAL_TP":
+                    cut = round(p["size"] * 0.5, 6)
+                    if not DRY_RUN:
+                        side = "sell" if p["direction"] == "long" else "buy"
+                        client.close_position(inst_id, side, cut, td_mode=sym_cfg.get("td_mode", "cross"))
+                    p["size"] = round(p["size"] - cut, 6)
+                    p["ratio"] = pos.size
+                    p["tp1_hit"] = True
+                    reports.append(f"{inst_id} {act[1]} 已平{cut}")
                 elif act[0] == "MOVE_SL":
                     p["sl"] = pos.sl
+                    p["risk_free"] = pos.risk_free
                     reports.append(f"{inst_id} {act[1]}")
+            if not exited:
+                # 状态写回(修复Bug2: 保本/部分止盈持久化)
+                p["sl"] = pos.sl
+                p["risk_free"] = pos.risk_free
+                p["tp1_hit"] = pos.tp1_hit
+                p["ratio"] = pos.size
 
     save_state(state)
 
