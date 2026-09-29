@@ -47,7 +47,14 @@ def fetch_candles(client, inst_id, limit=300):
 
 def run_once():
     state = load_state()
-    today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).date().isoformat()
+    now_bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    # 节流: 距上次运行<50分钟则跳过 (应对高频调度; GitHub调度实际执行率低)
+    last = state.get("last_run_ts", 0)
+    if time.time() - last < 50 * 60:
+        print(f"[节流跳过] 距上次运行{int((time.time()-last)/60)}分钟 <50分钟")
+        return
+    state["last_run_ts"] = time.time()
+    today = now_bj.date().isoformat()
     if state["daily"]["date"] != today:
         state["daily"] = {"date": today, "trades": 0}
 
@@ -115,10 +122,14 @@ def run_once():
 
     save_state(state)
 
-    # ---- 汇总报告 ----
-    header = f"**📡 盯盘巡检 {(datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime('%m-%d %H:%M')} (北京时间)**"
-    body = "\n\n".join(reports) if reports else "无新信号, 持仓平稳"
-    push(f"{header}\n\n{body}")
+    # ---- 推送策略: 有实质内容才推; 否则每天北京时间9点推一次心跳 ----
+    if reports:
+        header = f"**📡 盯盘巡检 {now_bj.strftime('%m-%d %H:%M')} (北京时间)**"
+        push(f"{header}\n\n" + "\n\n".join(reports))
+    elif now_bj.hour == 9:
+        push(f"**📡 每日心跳 {now_bj.strftime('%m-%d %H:%M')}**\n\n系统正常, 无新信号, 持仓平稳")
+    else:
+        print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
 
 if __name__ == "__main__":
     run_once()
