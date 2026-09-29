@@ -33,6 +33,30 @@ def load_state():
     except Exception:
         return {"positions": [], "daily": {"date": "", "trades": 0}, "last_signal_bar": {}}
 
+def build_daily_report(state, now_bj):
+    """每日日报 (北京时间早8点推送)"""
+    day = now_bj.strftime("%m-%d")
+    lines = [f"**📊 每日日报 {day} (北京时间)**", ""]
+    lines.append(f"**系统**: ✅ 正常 | 今日已运行 {state.get('run_count_today', 0)} 次")
+    hist = [h for h in state.get("history", []) if time.time() - h.get("ts", 0) < 86400]
+    sigs = [h for h in hist if h["type"] == "signal"]
+    exs = [h for h in hist if h["type"] == "exit"]
+    lines.append(f"**过去24h**: 信号 {len(sigs)} 个 | 出场 {len(exs)} 笔")
+    for h in sigs[-4:]:
+        lines.append(f"  🚨 {h['detail']}")
+    for h in exs[-4:]:
+        lines.append(f"  🏁 {h['detail']}")
+    pos = state.get("positions", [])
+    if pos:
+        lines.append(f"**当前持仓** {len(pos)} 个:")
+        for p in pos:
+            lines.append(f"  · {p['inst']} {p['direction'].upper()} 进{p['entry']:.0f} 损{p['sl']:.0f} 标{p['tp']:.0f}")
+    else:
+        lines.append("**当前持仓**: 无")
+    lines.append("")
+    lines.append(f"_模式: {'DRY_RUN(只告警)' if DRY_RUN else '模拟盘自动交易'} · 资金 {CAPITAL_USD:.0f}U_")
+    return "\n".join(lines)
+
 def save_state(s):
     json.dump(s, open(STATE_FILE, "w"), ensure_ascii=False, indent=1)
 
@@ -58,6 +82,8 @@ def run_once():
     today = now_bj.date().isoformat()
     if state["daily"]["date"] != today:
         state["daily"] = {"date": today, "trades": 0}
+        state["run_count_today"] = 0
+    state["run_count_today"] = state.get("run_count_today", 0) + 1
 
     client = OkxClient(simulated=True)
     risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
@@ -108,6 +134,8 @@ def run_once():
                 else:
                     line += "\n(DRY_RUN 未实际下单)"
                 reports.append(line)
+                state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
+                    "detail": f"{inst_id} {sig.direction.upper()} 进{sig.entry:.0f} 损{sig.sl:.0f} 标{sig.tp:.0f} RR1:{(abs(sig.tp-sig.entry)/max(abs(sig.entry-sig.sl),1e-9)):.1f}"})
             else:
                 reports.append(f"**{inst_id} 信号被风控拦截**\n" + "\n".join(f"  {d}" for d in detail))
             # 记录指纹(去重), 保留最近60条
@@ -128,6 +156,8 @@ def run_once():
             for act in acts:
                 if act[0] == "EXIT":
                     reports.append(f"**{inst_id} 出场** {act[1]} (entry={p['entry']:.1f})")
+                    state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
+                        "detail": f"{inst_id} {p['direction'].upper()} 进{p['entry']:.0f} {act[1]}"})
                     if not DRY_RUN:
                         side = "sell" if p["direction"] == "long" else "buy"
                         client.close_position(inst_id, side, p["size"], td_mode=sym_cfg.get("td_mode", "cross"))
@@ -154,16 +184,20 @@ def run_once():
                 p["tp1_hit"] = pos.tp1_hit
                 p["ratio"] = pos.size
 
-    save_state(state)
+    # ---- 每日日报: 北京时间8-10点间当天首次运行触发 ----
+    if 8 <= now_bj.hour < 10 and state.get("daily_report_date") != today:
+        push(build_daily_report(state, now_bj))
+        state["daily_report_date"] = today
 
-    # ---- 推送策略: 有实质内容才推; 否则每天北京时间9点推一次心跳 ----
+    # ---- 推送策略: 有实质内容才推; 无内容静默 ----
     if reports:
         header = f"**📡 盯盘巡检 {now_bj.strftime('%m-%d %H:%M')} (北京时间)**"
         push(f"{header}\n\n" + "\n\n".join(reports))
-    elif now_bj.hour == 9:
-        push(f"**📡 每日心跳 {now_bj.strftime('%m-%d %H:%M')}**\n\n系统正常, 无新信号, 持仓平稳")
     else:
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
+
+    state["history"] = state.get("history", [])[-100:]   # 历史保留最近100条
+    save_state(state)
 
 if __name__ == "__main__":
     run_once()
