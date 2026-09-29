@@ -52,6 +52,12 @@ class OkxClient:
         rows = list(reversed(d["data"]))
         return [Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])) for x in rows]
 
+    # ---------- 杠杆设置 (100倍必须显式设置) ----------
+    def set_leverage(self, inst_id, lever, mgn_mode="isolated"):
+        """设置杠杆: lever=100, mgn_mode=isolated(逐仓, 100倍必配)"""
+        return self._post("/api/v5/account/set-leverage",
+                          {"instId": inst_id, "lever": str(lever), "mgnMode": mgn_mode})
+
     # ---------- 模拟盘下单 ----------
     def place_order(self, inst_id, side, sz, td_mode="cross", ord_type="market"):
         """side: buy/sell; sz: 数量(张/币); 市价单
