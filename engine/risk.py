@@ -79,6 +79,38 @@ class RiskManager:
     def reset_daily(self):
         self.daily_trades = 0
 
+# ========== 固定保证金模式 (用户指定: 5U × 100倍) ==========
+def size_fixed_margin(price, inst_id):
+    """固定保证金仓位: 张数 = (保证金×杠杆) / (每张面值×价格), 按步长取整, 不低于最小下单"""
+    spec = C.INST_SPECS.get(inst_id)
+    if not spec:
+        return None
+    notional = C.MARGIN_PER_TRADE * C.LEVERAGE_FIXED
+    raw_lots = notional / (spec["ctVal"] * price)
+    lot = spec["lotSz"]
+    lots = max(round(raw_lots / lot) * lot, spec["minSz"])
+    actual_notional = lots * spec["ctVal"] * price
+    actual_margin = actual_notional / C.LEVERAGE_FIXED
+    return {"lots": round(lots, 6), "notional": round(actual_notional, 2),
+            "margin": round(actual_margin, 2), "leverage": C.LEVERAGE_FIXED,
+            "risk_amount": round(actual_margin, 2), "stop_pct": round(100.0 / C.LEVERAGE_FIXED, 2)}
+
+def liquidation_price(entry, direction):
+    """爆仓价估算 (100倍: 反向约1/杠杆-mmr)"""
+    mmr = C.MMR_ESTIMATE
+    if direction == "long":
+        return entry * (1 - 1.0 / C.LEVERAGE_FIXED + mmr)
+    return entry * (1 + 1.0 / C.LEVERAGE_FIXED - mmr)
+
+def liquidation_sl(entry, direction):
+    """等效止损 = 爆仓线前 0.3% 强制平仓 (避免爆仓罚金, 用户指定'爆仓按你的来')
+    返回 (止损价, 爆仓价)"""
+    liq = liquidation_price(entry, direction)
+    buf = entry * C.LIQ_BUFFER_PCT
+    if direction == "long":
+        return liq + buf, liq      # 多单: 先于爆仓线触发
+    return liq - buf, liq          # 空单
+
 class PyramidingManager:
     """滚仓仓位管理 (规则E7/E8/E10)"""
 
