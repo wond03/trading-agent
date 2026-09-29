@@ -33,6 +33,47 @@ def load_state():
     except Exception:
         return {"positions": [], "daily": {"date": "", "trades": 0}, "last_signal_bar": {}}
 
+def fmt_price(x):
+    return f"{x:,.0f}" if x >= 100 else f"{x:,.2f}"
+
+def simplify_reason(reason):
+    """技术证据链 → 人话"""
+    import re
+    r = reason.split("|")[0] if "|" in reason else reason      # 去掉尾部重复的RR
+    r = re.sub(r"上截取@([\d.]+)\((\d)\)", r"扫上方流动性\1(双点)", r)
+    r = re.sub(r"下截取@([\d.]+)\((\d)\)", r"扫下方流动性\1(双点)", r)
+    r = re.sub(r"转多@[\d.]+", "结构转多", r)
+    r = re.sub(r"转空@[\d.]+", "结构转空", r)
+    r = r.replace("回踩收阳", "回踩企稳").replace("回踩收阴", "回踩走弱").replace("放量触发", "放量确认")
+    r = r.replace("回踩 → 回踩走弱", "回踩走弱").replace("回踩 → 回踩企稳", "回踩企稳").replace("回踩 → 放量确认", "回踩放量确认")
+    return r.strip().strip("→ ").replace(" → ", " → ")
+
+def format_signal(inst_id, sig, size):
+    """信号消息模板: 分层清晰/人话/无冗余"""
+    name = "BTC" if "BTC" in inst_id else "黄金(PAXG)"
+    side = "做多" if sig.direction == "long" else "做空"
+    sl_pct = abs(sig.sl - sig.entry) / sig.entry * 100
+    tp_pct = abs(sig.tp - sig.entry) / sig.entry * 100
+    rr = abs(sig.tp - sig.entry) / max(abs(sig.entry - sig.sl), 1e-9)
+    risk_pct = size["risk_amount"] / CAPITAL_USD * 100
+    # 方向语义: 做空时止损在上涨方向, 目标在下跌方向
+    if sig.direction == "long":
+        sl_txt, tp_txt = f"跌{sl_pct:.1f}%即离场", f"涨{tp_pct:.1f}%止盈"
+    else:
+        sl_txt, tp_txt = f"涨{sl_pct:.1f}%即离场", f"跌{tp_pct:.1f}%止盈"
+    unit = "BTC" if "BTC" in inst_id else "PAXG"
+    msg = (f"🚨 **新信号 · {name} {side}**\n\n"
+           f"**进场** {fmt_price(sig.entry)}\n"
+           f"**止损** {fmt_price(sig.sl)}  ({sl_txt})\n"
+           f"**目标** {fmt_price(sig.tp)}  ({tp_txt})\n"
+           f"**盈亏比** 1 : {rr:.1f}\n\n"
+           f"**依据** {simplify_reason(sig.reason)}\n"
+           f"**仓位** {size['qty']:.4f} {unit}  保证金{size['margin']:.0f}U · {size['leverage']}倍\n"
+           f"**风险** 最大亏{size['risk_amount']:.0f}U（资金{risk_pct:.0f}%）")
+    if DRY_RUN:
+        msg += "\n\n> 模拟观察模式，未实际下单"
+    return msg
+
 def build_daily_report(state, now_bj):
     """每日日报 (北京时间早8点推送)"""
     day = now_bj.strftime("%m-%d")
@@ -117,13 +158,12 @@ def run_once():
             ok, detail = risk.check_gates(sig)
             if ok:
                 size = risk.position_size(sig.entry, sig.sl, sig.direction)
-                line = (f"**🚨 新信号 {inst_id}**\n{sig}\n"
-                        f"仓位: {size['qty']} (名义{size['notional']}U 保证金{size['margin']}U {size['leverage']}x)\n"
-                        f"风控: 单笔风险{size['risk_amount']}U")
+                line = format_signal(inst_id, sig, size)
                 if not DRY_RUN:
                     side = "buy" if sig.direction == "long" else "sell"
                     resp = client.place_order(inst_id, side, size["qty"], td_mode=sym_cfg.get("td_mode", "cross"))
-                    line += f"\n下单: {'✅' if resp.get('code')=='0' else '❌ ' + str(resp)[:100]}"
+                    ok_txt = "✅ 已自动下单" if resp.get("code") == "0" else f"❌ 下单失败: {str(resp)[:80]}"
+                    line = line.replace("> 模拟观察模式，未实际下单", f"> {ok_txt}")
                     if resp.get("code") == "0":
                         state["positions"].append({"inst": inst_id, "direction": sig.direction,
                                                    "entry": sig.entry, "sl": sig.sl, "tp": sig.tp,
@@ -132,12 +172,12 @@ def run_once():
                                                    "opened": int(time.time())})
                         state["daily"]["trades"] += 1
                 else:
-                    line += "\n(DRY_RUN 未实际下单)"
+                    pass  # DRY_RUN 提示已由 format_signal 生成
                 reports.append(line)
                 state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
                     "detail": f"{inst_id} {sig.direction.upper()} 进{sig.entry:.0f} 损{sig.sl:.0f} 标{sig.tp:.0f} RR1:{(abs(sig.tp-sig.entry)/max(abs(sig.entry-sig.sl),1e-9)):.1f}"})
             else:
-                reports.append(f"**{inst_id} 信号被风控拦截**\n" + "\n".join(f"  {d}" for d in detail))
+                reports.append(f"⚠️ **{inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
             # 记录指纹(去重), 保留最近60条
             state.setdefault("pushed_signals", []).append(fp)
             state["pushed_signals"] = state["pushed_signals"][-60:]
@@ -155,7 +195,9 @@ def run_once():
             exited = False
             for act in acts:
                 if act[0] == "EXIT":
-                    reports.append(f"**{inst_id} 出场** {act[1]} (entry={p['entry']:.1f})")
+                    _nm = "BTC" if "BTC" in inst_id else "黄金(PAXG)"
+                    _sd = "多单" if p["direction"] == "long" else "空单"
+                    reports.append(f"🏁 **出场 · {_nm} {_sd}**\n**原因** {act[1]}\n**进场** {fmt_price(p['entry'])}")
                     state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
                         "detail": f"{inst_id} {p['direction'].upper()} 进{p['entry']:.0f} {act[1]}"})
                     if not DRY_RUN:
@@ -191,7 +233,7 @@ def run_once():
 
     # ---- 推送策略: 有实质内容才推; 无内容静默 ----
     if reports:
-        header = f"**📡 盯盘巡检 {now_bj.strftime('%m-%d %H:%M')} (北京时间)**"
+        header = f"📡 **盯盘巡检** · {now_bj.strftime('%m-%d %H:%M')}"
         push(f"{header}\n\n" + "\n\n".join(reports))
     else:
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
