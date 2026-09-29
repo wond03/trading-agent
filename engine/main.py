@@ -7,7 +7,7 @@ from structure import StructureEngine, Candle
 from liquidity import LiquidityEngine
 from entry import EntryEngine
 from exits import ExitEngine, Position
-from risk import RiskManager
+from risk import RiskManager, size_fixed_margin, liquidation_sl
 from okx_client import OkxClient
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -48,28 +48,28 @@ def simplify_reason(reason):
     r = r.replace("回踩 → 回踩走弱", "回踩走弱").replace("回踩 → 回踩企稳", "回踩企稳").replace("回踩 → 放量确认", "回踩放量确认")
     return r.strip().strip("→ ").replace(" → ", " → ")
 
-def format_signal(inst_id, sig, size):
-    """信号消息模板: 分层清晰/人话/无冗余"""
-    name = "BTC" if "BTC" in inst_id else "黄金(PAXG)"
+def format_signal(inst_id, sig, size, sl_use=None, liq=None):
+    """信号消息模板 (固定保证金模式: 显示爆仓价与强平止损)"""
+    name = "BTC" if "BTC" in inst_id else "黄金"
     side = "做多" if sig.direction == "long" else "做空"
-    sl_pct = abs(sig.sl - sig.entry) / sig.entry * 100
+    sl = sl_use if sl_use else sig.sl
+    sl_pct = abs(sl - sig.entry) / sig.entry * 100
     tp_pct = abs(sig.tp - sig.entry) / sig.entry * 100
-    rr = abs(sig.tp - sig.entry) / max(abs(sig.entry - sig.sl), 1e-9)
-    risk_pct = size["risk_amount"] / CAPITAL_USD * 100
-    # 方向语义: 做空时止损在上涨方向, 目标在下跌方向
+    rr = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl), 1e-9)
     if sig.direction == "long":
         sl_txt, tp_txt = f"跌{sl_pct:.1f}%即离场", f"涨{tp_pct:.1f}%止盈"
     else:
         sl_txt, tp_txt = f"涨{sl_pct:.1f}%即离场", f"跌{tp_pct:.1f}%止盈"
-    unit = "BTC" if "BTC" in inst_id else "PAXG"
+    unit = "BTC" if "BTC" in inst_id else "XAU"
     msg = (f"🚨 **新信号 · {name} {side}**\n\n"
            f"**进场** {fmt_price(sig.entry)}\n"
-           f"**止损** {fmt_price(sig.sl)}  ({sl_txt})\n"
-           f"**目标** {fmt_price(sig.tp)}  ({tp_txt})\n"
-           f"**盈亏比** 1 : {rr:.1f}\n\n"
-           f"**依据** {simplify_reason(sig.reason)}\n"
-           f"**仓位** {size['qty']:.4f} {unit}  保证金{size['margin']:.0f}U · {size['leverage']}倍\n"
-           f"**风险** 最大亏{size['risk_amount']:.0f}U（资金{risk_pct:.0f}%）")
+           f"**止损** {fmt_price(sl)}  ({sl_txt})")
+    if liq:
+        msg += f"\n**爆仓价** {fmt_price(liq)}  (止损在其前0.3%强平)"
+    msg += (f"\n**目标** {fmt_price(sig.tp)}  ({tp_txt})\n"
+            f"**盈亏比** 1 : {rr:.1f}\n\n"
+            f"**依据** {simplify_reason(sig.reason)}\n"
+            f"**下单** {size['lots']} 张 ≈ {size['notional']:.0f}U 名义  保证金{size['margin']:.1f}U · {size['leverage']}倍")
     if DRY_RUN:
         msg += "\n\n> 模拟观察模式，未实际下单"
     return msg
@@ -105,7 +105,7 @@ def fetch_candles(client, inst_id, limit=300):
     """数据源路由: 正式=OKX; 本地测试=Gate.io(沙盒可达)"""
     if os.environ.get("DATA_SOURCE") == "gate":
         import requests
-        pair = {"BTC-USDT-SWAP": "BTC_USDT", "PAXG-USDT": "PAXG_USDT"}.get(inst_id, "BTC_USDT")
+        pair = {"BTC-USDT-SWAP": "BTC_USDT", "XAU-USDT-SWAP": "PAXG_USDT"}.get(inst_id, "BTC_USDT")  # 本地测试:XAU用PAXG代理
         r = requests.get("https://api.gateio.ws/api/v4/spot/candlesticks",
                          params={"currency_pair": pair, "interval": "1h", "limit": limit}, timeout=15)
         return [Candle(int(d[0]), float(d[5]), float(d[3]), float(d[4]), float(d[2]), float(d[1])) for d in r.json()]
@@ -157,18 +157,21 @@ def run_once():
         if sig:
             ok, detail = risk.check_gates(sig)
             if ok:
-                size = risk.position_size(sig.entry, sig.sl, sig.direction)
-                line = format_signal(inst_id, sig, size)
+                size = size_fixed_margin(px, inst_id)
+                sl_use, liq_px = liquidation_sl(sig.entry, sig.direction)
+                line = format_signal(inst_id, sig, size, sl_use, liq_px)
                 if not DRY_RUN:
+                    client.set_leverage(inst_id, size["leverage"], sym_cfg.get("td_mode", "isolated"))
                     side = "buy" if sig.direction == "long" else "sell"
-                    resp = client.place_order(inst_id, side, size["qty"], td_mode=sym_cfg.get("td_mode", "cross"))
+                    resp = client.place_order(inst_id, side, size["lots"], td_mode=sym_cfg.get("td_mode", "isolated"))
                     ok_txt = "✅ 已自动下单" if resp.get("code") == "0" else f"❌ 下单失败: {str(resp)[:80]}"
                     line = line.replace("> 模拟观察模式，未实际下单", f"> {ok_txt}")
                     if resp.get("code") == "0":
                         state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                                   "entry": sig.entry, "sl": sig.sl, "tp": sig.tp,
-                                                   "size": size["qty"], "ratio": 1.0,
+                                                   "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
+                                                   "size": size["lots"], "ratio": 1.0,
                                                    "risk_free": False, "tp1_hit": False,
+                                                   "leverage": size["leverage"],
                                                    "opened": int(time.time())})
                         state["daily"]["trades"] += 1
                 else:
@@ -195,7 +198,7 @@ def run_once():
             exited = False
             for act in acts:
                 if act[0] == "EXIT":
-                    _nm = "BTC" if "BTC" in inst_id else "黄金(PAXG)"
+                    _nm = "BTC" if "BTC" in inst_id else "黄金"
                     _sd = "多单" if p["direction"] == "long" else "空单"
                     reports.append(f"🏁 **出场 · {_nm} {_sd}**\n**原因** {act[1]}\n**进场** {fmt_price(p['entry'])}")
                     state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
