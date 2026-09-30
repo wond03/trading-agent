@@ -30,7 +30,8 @@ HTF_TREND_WEIGHT = True   # 多周期共振: 基础周期信号必须与HTF趋�
 # ---------- 流动性/FVG (模块B) ----------
 FVG_MIN_ATR = 0.3         # [待标定] FVG最小尺寸 = ATR14 * 此值, 过滤噪声缺口(规则B1)
 IFVG_CONFIRM_BARS = (3, 8)  # IFVG牛熊转换: 下跌FVG出现后3~8根内回填(规则B4), 超过8根视为失效
-SWEEP_DOUBLE_POINT_H1 = True  # 1H级别截取须扫到2个点(规则B5); 实现为: 扫过的swing点数>=2
+SWEEP_DOUBLE_POINT_H1 = False  # 放宽(2026-10-01): 允许单点截取进入候选(原True要求双点, 实测信号过稀15天/个); 单点会标注置信度
+SIGNAL_GRADING = True          # 分级信号: A级(双点+回踩FVG,完整五步) / B级(单点或仅回踩斐波)
 TRUE_BREAK_BY_CLOSE = True    # 实体收过=真突破, 影线刺破收回=截取扫损(规则A11/B11 ★核心二元判定)
 
 # ---------- 入场模板 (模块C) ----------
