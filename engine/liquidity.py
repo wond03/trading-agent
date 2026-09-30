@@ -1,3 +1,4 @@
+# 暗夜猎手 (NightHunter) · 流动性模块
 # 流动性模块 —— 森林查尔斯课程模块B实现
 # 规则依据: B1-B11 (FVG定义/CE中点/iFVG/IFVG牛熊转换/双点截取/内外部流动性)
 import config as C
