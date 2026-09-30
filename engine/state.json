@@ -5,8 +5,8 @@
   "trades": 0
  },
  "last_signal_bar": {},
- "last_run_ts": 1790785828.6098628,
- "run_count_today": 2,
+ "last_run_ts": 1790787637.6845095,
+ "run_count_today": 3,
  "history": [
   {
    "type": "signal",
@@ -17,5 +17,9 @@
  "pushed_signals": [
   "BTC-USDT-SWAP|short|84450"
  ],
- "daily_report_date": "2026-09-30"
+ "daily_report_date": "2026-09-30",
+ "market_snapshot": [
+  "· BTC: 下跌趋势 | 活跃FVG 84,063~84,385 | 最近截取 扫下83,345(1点)",
+  "· 黄金: 上涨趋势 | 活跃FVG 4,173~4,182 | 最近截取 扫下4,171(1点)"
+ ]
 }
