@@ -1,4 +1,4 @@
-# 主循环 —— 串起全链路: 行情 → 结构 → 流动性 → 入场 → 风控 → (模拟盘下单) → 企微推送
+# 暗夜猎手 (NightHunter) 主循环 —— 串起全链路: 行情 → 结构 → 流动性 → 入场 → 风控 → (模拟盘下单) → 企微推送
 # 运行模式: DRY_RUN=1 只告警不下单(默认); AUTO_TRADE=1 启用模拟盘自动下单
 import os, sys, json, time, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -85,7 +85,7 @@ def build_daily_report(state, now_bj):
     exs = [h for h in hist if h["type"] == "exit"]
     pos = state.get("positions", [])
 
-    lines = [f"📊 **每日日报 · {day}**", ""]
+    lines = [f"🌙 **暗夜猎手 · 日报 {day}**", ""]
     lines.append(f"**系统** ✅ 今日运行 {runs} 次")
     lines.append(f"**交易** 信号 {len(sigs)} · 出场 {len(exs)} · 持仓 {len(pos)}")
     if exs:
@@ -306,7 +306,7 @@ def run_once():
 
     # ---- 推送策略: 有实质内容才推; 无内容静默 ----
     if reports:
-        header = f"📡 **盯盘巡检** · {now_bj.strftime('%m-%d %H:%M')}"
+        header = f"🌙 **暗夜猎手 · 巡检** {now_bj.strftime('%m-%d %H:%M')}"
         push(f"{header}\n\n" + "\n\n".join(reports))
     else:
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
