@@ -1,3 +1,4 @@
+# 暗夜猎手 (NightHunter) · 配置中心
 # 盯盘/交易引擎配置 —— 森林查尔斯课程规则库实现
 # 所有 [待标定] 阈值先用默认值, 上模拟盘后用数据回测校准
 # 依据: /sandbox/workspace/trading_agent/transcripts/规则库_森林查尔斯课程.md
