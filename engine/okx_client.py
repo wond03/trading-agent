@@ -1,3 +1,4 @@
+# 暗夜猎手 (NightHunter) · OKX客户端
 # OKX 客户端 —— 行情(K线) + 模拟盘下单/持仓
 # 凭证来源: 环境变量(本地调试) / GitHub Secrets(云端), 代码中永不出现真实密钥
 # 模拟盘: 所有请求带 header  x-simulated-trading: 1
