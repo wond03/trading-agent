@@ -4,7 +4,7 @@ import config as C
 from structure import atr
 
 class EntrySignal:
-    def __init__(self, direction, entry, sl, tp, reason, steps, confidence="normal"):
+    def __init__(self, direction, entry, sl, tp, reason, steps, confidence="normal", grade="A", sweep_pts=1):
         self.direction = direction   # 'long' / 'short'
         self.entry = entry
         self.sl = sl
@@ -12,6 +12,8 @@ class EntrySignal:
         self.reason = reason
         self.steps = steps           # 五步通过明细
         self.confidence = confidence # normal / high(多周期共振)
+        self.grade = grade           # A级(双点截取+回踩FVG) / B级(单点或仅斐波回踩)
+        self.sweep_pts = sweep_pts   # 截取扫过的点数
 
     def __repr__(self):
         rr = abs(self.tp - self.entry) / max(abs(self.entry - self.sl), 1e-9)
@@ -53,6 +55,7 @@ class EntryEngine:
         if not valid_sweeps:
             return None
         sweep = valid_sweeps[-1]
+        sweep_pts = sweep[3] if isinstance(sweep[3], int) else 1
 
         # ③ 转势确认 (规则C2/C13: 截取后必须出现转势)
         turn_events = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down", "BOS_up", "BOS_down")]
@@ -117,8 +120,9 @@ class EntryEngine:
             if rr < C.RR_MIN_GROWTH:
                 return None
             conf = "high" if in_fvg and in_retrace else "normal"
+            grade = "A" if (sweep_pts >= 2 and in_fvg) else "B"
             return EntrySignal("long", px, sl, tp,
-                               f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf)
+                               f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
         else:
             sl = sweep_price + a * C.SL_BUFFER_ATR
             risk = sl - px
@@ -130,8 +134,9 @@ class EntryEngine:
             if rr < C.RR_MIN_GROWTH:
                 return None
             conf = "high" if in_fvg and in_retrace else "normal"
+            grade = "A" if (sweep_pts >= 2 and in_fvg) else "B"
             return EntrySignal("short", px, sl, tp,
-                               f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf)
+                               f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
 
     # ---------- 模型2: 双蜡烛真假突破 (规则C3, CRT核心) ----------
     def double_candle_breakout(self, candles, i=None):
