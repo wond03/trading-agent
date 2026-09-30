@@ -75,42 +75,51 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None):
     return msg
 
 def build_daily_report(state, now_bj):
-    """每日日报 (北京时间早8点推送)"""
+    """每日日报 (北京时间早8点后首次运行推送)"""
     day = now_bj.strftime("%m-%d")
-    lines = [f"**📊 每日日报 {day} (北京时间)**", ""]
-    lines.append(f"**系统**: ✅ 正常 | 今日已运行 {state.get('run_count_today', 0)} 次")
+    runs = state.get("run_count_today", 0)
     hist = [h for h in state.get("history", []) if time.time() - h.get("ts", 0) < 86400]
     sigs = [h for h in hist if h["type"] == "signal"]
     exs = [h for h in hist if h["type"] == "exit"]
-    lines.append(f"**过去24h**: 信号 {len(sigs)} 个 | 出场 {len(exs)} 笔")
-    if exs:
-        pnl_sum = sum(h.get("pnl", 0) for h in exs)
-        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
-        lines.append(f"**模拟盈亏**: {pnl_sum:+.2f}U | 胜率 {wins}/{len(exs)}")
-    for h in sigs[-4:]:
-        lines.append(f"  🚨 {h['detail']}")
-    for h in exs[-4:]:
-        lines.append(f"  🏁 {h['detail']}")
     pos = state.get("positions", [])
-    if pos:
-        lines.append(f"**当前持仓** {len(pos)} 个:")
-        for p in pos:
-            lines.append(f"  · {p['inst']} {p['direction'].upper()} 进{p['entry']:.0f} 损{p['sl']:.0f} 标{p['tp']:.0f}")
+
+    lines = [f"📊 **每日日报 · {day}**", ""]
+    lines.append(f"**系统** ✅ 今日运行 {runs} 次")
+    lines.append(f"**交易** 信号 {len(sigs)} · 出场 {len(exs)} · 持仓 {len(pos)}")
+    if exs:
+        pnl = sum(h.get("pnl", 0) for h in exs)
+        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
+        lines.append(f"**盈亏** {pnl:+.2f}U · 胜率 {wins}/{len(exs)}")
     else:
-        lines.append("**当前持仓**: 无")
-    # 策略诊断(自进化阶段①)
+        lines.append("**盈亏** 暂无平仓样本")
+
+    if pos:
+        lines.append("")
+        lines.append("**当前持仓**")
+        for p in pos:
+            nm = "BTC" if "BTC" in p["inst"] else "黄金"
+            sd = "做多" if p["direction"] == "long" else "做空"
+            tag = "🧪模拟" if p.get("simulated") else "💰实盘"
+            lines.append(f"{tag} {nm}{sd} · 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} 标{fmt_price(p['tp'])}")
+
+    if sigs:
+        lines.append("")
+        lines.append("**24h 信号**")
+        for h in sigs[-3:]:
+            lines.append(f"· {h['detail']}")
+
     try:
         from auto_calibrator import analyze
         d = analyze(state.get("history", []))
-        if d.get("ok"):
-            lines.append("")
-            lines.append(f"**🔬 策略诊断** {d['summary']}")
-            for a in d["advice"][:2]:
-                lines.append(f"· {a}")
+        lines.append("")
+        lines.append(f"**🔬 诊断** {d['summary']}")
+        for a in d.get("advice", [])[:2]:
+            lines.append(f"· {a}")
     except Exception as e:
-        print(f"[诊断模块异常] {e}")
+        print(f"[诊断异常] {e}")
+
     lines.append("")
-    lines.append(f"_模式: {'DRY_RUN(只告警)' if DRY_RUN else '模拟盘自动交易'} · 资金 {CAPITAL_USD:.0f}U_")
+    lines.append(f"_{'模拟观察' if DRY_RUN else '模拟盘自动交易'} · {C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_")
     return "\n".join(lines)
 
 def save_state(s):
@@ -207,8 +216,11 @@ def run_once():
                                                "leverage": size["leverage"], "simulated": True,
                                                "opened": int(time.time())})
                 reports.append(line)
+                _nmx = "BTC" if "BTC" in inst_id else "黄金"
+                _sdx = "做多" if sig.direction == "long" else "做空"
+                _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
                 state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
-                    "detail": f"{inst_id} {sig.direction.upper()} 进{sig.entry:.0f} 损{sig.sl:.0f} 标{sig.tp:.0f} RR1:{(abs(sig.tp-sig.entry)/max(abs(sig.entry-sig.sl),1e-9)):.1f}"})
+                    "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
             else:
                 reports.append(f"⚠️ **{inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
             # 记录指纹(去重), 保留最近60条
