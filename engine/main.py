@@ -98,6 +98,17 @@ def build_daily_report(state, now_bj):
             lines.append(f"  · {p['inst']} {p['direction'].upper()} 进{p['entry']:.0f} 损{p['sl']:.0f} 标{p['tp']:.0f}")
     else:
         lines.append("**当前持仓**: 无")
+    # 策略诊断(自进化阶段①)
+    try:
+        from auto_calibrator import analyze
+        d = analyze(state.get("history", []))
+        if d.get("ok"):
+            lines.append("")
+            lines.append(f"**🔬 策略诊断** {d['summary']}")
+            for a in d["advice"][:2]:
+                lines.append(f"· {a}")
+    except Exception as e:
+        print(f"[诊断模块异常] {e}")
     lines.append("")
     lines.append(f"_模式: {'DRY_RUN(只告警)' if DRY_RUN else '模拟盘自动交易'} · 资金 {CAPITAL_USD:.0f}U_")
     return "\n".join(lines)
@@ -135,6 +146,12 @@ def run_once():
     risk.daily_trades = state["daily"]["trades"]
     reports = []
 
+    # 连亏保护(自进化阶段②-轻量): 最近3笔全亏 → 本轮不开新仓(持仓照常管理)
+    recent3 = [h for h in state.get("history", []) if h.get("type") == "exit"][-3:]
+    halt_new = len(recent3) == 3 and all(h.get("pnl", 0) <= 0 for h in recent3)
+    if halt_new:
+        print("[连亏保护] 最近3笔全亏, 本轮不开新仓")
+
     for inst_id, sym_cfg in C.SYMBOLS.items():
         if not sym_cfg.get("enabled"):
             continue
@@ -160,6 +177,9 @@ def run_once():
                 sig = None
         if sig:
             ok, detail = risk.check_gates(sig)
+            if ok and halt_new:
+                reports.append(f"🛑 **连亏保护** 最近3笔全亏，跳过开仓（{inst_id}）")
+                ok = False
             if ok:
                 size = size_fixed_margin(px, inst_id)
                 sl_use, liq_px = liquidation_sl(sig.entry, sig.direction)
