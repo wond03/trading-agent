@@ -83,6 +83,10 @@ def build_daily_report(state, now_bj):
     sigs = [h for h in hist if h["type"] == "signal"]
     exs = [h for h in hist if h["type"] == "exit"]
     lines.append(f"**过去24h**: 信号 {len(sigs)} 个 | 出场 {len(exs)} 笔")
+    if exs:
+        pnl_sum = sum(h.get("pnl", 0) for h in exs)
+        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
+        lines.append(f"**模拟盈亏**: {pnl_sum:+.2f}U | 胜率 {wins}/{len(exs)}")
     for h in sigs[-4:]:
         lines.append(f"  🚨 {h['detail']}")
     for h in exs[-4:]:
@@ -175,7 +179,13 @@ def run_once():
                                                    "opened": int(time.time())})
                         state["daily"]["trades"] += 1
                 else:
-                    pass  # DRY_RUN 提示已由 format_signal 生成
+                    # DRY_RUN: 建立虚拟持仓 → 观察期自动统计模拟盈亏
+                    state["positions"].append({"inst": inst_id, "direction": sig.direction,
+                                               "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
+                                               "size": size["lots"], "ratio": 1.0,
+                                               "risk_free": False, "tp1_hit": False,
+                                               "leverage": size["leverage"], "simulated": True,
+                                               "opened": int(time.time())})
                 reports.append(line)
                 state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
                     "detail": f"{inst_id} {sig.direction.upper()} 进{sig.entry:.0f} 损{sig.sl:.0f} 标{sig.tp:.0f} RR1:{(abs(sig.tp-sig.entry)/max(abs(sig.entry-sig.sl),1e-9)):.1f}"})
@@ -200,9 +210,16 @@ def run_once():
                 if act[0] == "EXIT":
                     _nm = "BTC" if "BTC" in inst_id else "黄金"
                     _sd = "多单" if p["direction"] == "long" else "空单"
-                    reports.append(f"🏁 **出场 · {_nm} {_sd}**\n**原因** {act[1]}\n**进场** {fmt_price(p['entry'])}")
-                    state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
-                        "detail": f"{inst_id} {p['direction'].upper()} 进{p['entry']:.0f} {act[1]}"})
+                    exit_px = act[2] if len(act) > 2 else p["entry"]
+                    ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
+                    sign = 1 if p["direction"] == "long" else -1
+                    pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
+                    tag = "(模拟)" if p.get("simulated") else ""
+                    reports.append(f"🏁 **出场{tag} · {_nm} {_sd}**\n**原因** {act[1]}\n"
+                                   f"**进场** {fmt_price(p['entry'])} → **出场** {fmt_price(exit_px)}\n"
+                                   f"**盈亏** {pnl:+.2f}U ({pnl / C.MARGIN_PER_TRADE * 100:+.0f}%保证金)")
+                    state.setdefault("history", []).append({"type": "exit", "ts": time.time(), "pnl": round(pnl, 2),
+                        "detail": f"{_nm} {p['direction'].upper()} {pnl:+.2f}U"})
                     if not DRY_RUN:
                         side = "sell" if p["direction"] == "long" else "buy"
                         client.close_position(inst_id, side, p["size"], td_mode=sym_cfg.get("td_mode", "cross"))
@@ -229,8 +246,8 @@ def run_once():
                 p["tp1_hit"] = pos.tp1_hit
                 p["ratio"] = pos.size
 
-    # ---- 每日日报: 北京时间8-10点间当天首次运行触发 ----
-    if 8 <= now_bj.hour < 10 and state.get("daily_report_date") != today:
+    # ---- 每日日报: 北京时间8点后当天首次运行触发(窗口放宽, 防止调度错过8点档) ----
+    if now_bj.hour >= 8 and state.get("daily_report_date") != today:
         push(build_daily_report(state, now_bj))
         state["daily_report_date"] = today
 
