@@ -1,3 +1,4 @@
+# 暗夜猎手 (NightHunter) · 出场管理
 # 出场管理 —— 森林查尔斯课程模块D实现
 # 规则依据: D1-D8 (止盈三原则/前高保本/结构位追踪止损/提前止盈)
 import config as C
@@ -35,26 +36,26 @@ class ExitEngine:
         # ---- 硬性出场: SL / TP 触发 ----
         if pos.direction == "long":
             if bar.low <= pos.sl:
-                actions.append(("EXIT", f"止损触发 @{pos.sl:.1f}"))
+                actions.append(("EXIT", f"止损触发 @{pos.sl:.1f}", pos.sl))
                 return actions
             if bar.high >= pos.tp:
-                actions.append(("EXIT", f"止盈触发TP @{pos.tp:.1f} (规则D1-③)"))
+                actions.append(("EXIT", f"止盈触发TP @{pos.tp:.1f} (规则D1-③)", pos.tp))
                 return actions
         else:
             if bar.high >= pos.sl:
-                actions.append(("EXIT", f"止损触发 @{pos.sl:.1f}"))
+                actions.append(("EXIT", f"止损触发 @{pos.sl:.1f}", pos.sl))
                 return actions
             if bar.low <= pos.tp:
-                actions.append(("EXIT", f"止盈触发TP @{pos.tp:.1f} (规则D1-③)"))
+                actions.append(("EXIT", f"止盈触发TP @{pos.tp:.1f} (规则D1-③)", pos.tp))
                 return actions
 
         # ---- 规则D1-②: 反向CHoCH → 立即出场 ----
         recent = [e for e in se.events if 0 <= i - e[0] <= 3]
         if pos.direction == "long" and any(e[1] == "CHoCH_down" for e in recent):
-            actions.append(("EXIT", "趋势转换CHoCH_down, 立即出场不论盈亏 (规则D1-②)"))
+            actions.append(("EXIT", "趋势转换CHoCH_down, 立即出场不论盈亏 (规则D1-②)", bar.close))
             return actions
         if pos.direction == "short" and any(e[1] == "CHoCH_up" for e in recent):
-            actions.append(("EXIT", "趋势转换CHoCH_up, 立即出场不论盈亏 (规则D1-②)"))
+            actions.append(("EXIT", "趋势转换CHoCH_up, 立即出场不论盈亏 (规则D1-②)", bar.close))
             return actions
 
         # ---- 规则D1-①: 出量止盈 (部分) ----
