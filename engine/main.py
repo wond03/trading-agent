@@ -118,10 +118,10 @@ def fetch_candles(client, inst_id, limit=300):
 def run_once():
     state = load_state()
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
-    # 节流: 距上次运行<50分钟则跳过 (应对高频调度; GitHub调度实际执行率低)
+    # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
     last = state.get("last_run_ts", 0)
-    if time.time() - last < 50 * 60:
-        print(f"[节流跳过] 距上次运行{int((time.time()-last)/60)}分钟 <50分钟")
+    if time.time() - last < 25 * 60:
+        print(f"[节流跳过] 距上次运行{int((time.time()-last)/60)}分钟 <25分钟")
         return
     state["last_run_ts"] = time.time()
     today = now_bj.date().isoformat()
