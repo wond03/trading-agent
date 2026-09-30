@@ -61,7 +61,9 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None):
     else:
         sl_txt, tp_txt = f"涨{sl_pct:.1f}%即离场", f"跌{tp_pct:.1f}%止盈"
     unit = "BTC" if "BTC" in inst_id else "XAU"
-    msg = (f"🚨 **新信号 · {name} {side}**\n\n"
+    _g = getattr(sig, "grade", "A")
+    _emoji = "🚨" if _g == "A" else "📣"
+    msg = (f"{_emoji} **{_g}级信号 · {name} {side}**\n\n"
            f"**进场** {fmt_price(sig.entry)}\n"
            f"**止损** {fmt_price(sl)}  ({sl_txt})")
     if liq:
@@ -104,9 +106,17 @@ def build_daily_report(state, now_bj):
 
     if sigs:
         lines.append("")
-        lines.append("**24h 信号**")
+        _ga = sum(1 for h in sigs if h.get("grade", "A") == "A")
+        _gb = len(sigs) - _ga
+        lines.append(f"**24h 信号**（A级{_ga} · B级{_gb}）")
         for h in sigs[-3:]:
-            lines.append(f"· {h['detail']}")
+            lines.append(f"· [{h.get('grade','A')}] {h['detail']}")
+
+    ms = state.get("market_snapshot", [])
+    if ms:
+        lines.append("")
+        lines.append("**市场状态**")
+        lines.extend(ms)
 
     try:
         from auto_calibrator import analyze
@@ -154,6 +164,7 @@ def run_once():
     risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
     risk.daily_trades = state["daily"]["trades"]
     reports = []
+    market_notes = []
 
     # 连亏保护(自进化阶段②-轻量): 最近3笔全亏 → 本轮不开新仓(持仓照常管理)
     recent3 = [h for h in state.get("history", []) if h.get("type") == "exit"][-3:]
@@ -174,6 +185,15 @@ def run_once():
         se.process(candles); le.process(candles)
         htf = "up" if candles[-1].close > candles[-50].close else "down"
         px = candles[-1].close
+
+        # ---- 市场状态采集(供日报) ----
+        _nmk = "BTC" if "BTC" in inst_id else "黄金"
+        _trend = {"up": "上涨", "down": "下跌", None: "震荡"}.get(se.trend, "不明")
+        _af = le.snapshot()["active_fvgs"]
+        _fvg = f"{_af[-1]['bottom']:,.0f}~{_af[-1]['top']:,.0f}" if _af else "无"
+        _lv = le.sweeps[-1] if le.sweeps else None
+        _sweep_txt = f"{'扫上' if _lv[1]=='up' else '扫下'}{_lv[2]:,.0f}({_lv[3]}点)" if _lv else "无近期截取"
+        market_notes.append(f"· {_nmk}: {_trend}趋势 | 活跃FVG {_fvg} | 最近截取 {_sweep_txt}")
 
         # ---- 新信号检测 (含指纹去重: 同一信号只推一次) ----
         ee = EntryEngine()
@@ -220,6 +240,7 @@ def run_once():
                 _sdx = "做多" if sig.direction == "long" else "做空"
                 _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
                 state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
+                    "grade": getattr(sig, "grade", "A"),
                     "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
             else:
                 reports.append(f"⚠️ **{inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
@@ -291,6 +312,7 @@ def run_once():
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
 
     state["history"] = state.get("history", [])[-100:]   # 历史保留最近100条
+    state["market_snapshot"] = market_notes               # 供日报展示
     save_state(state)
 
 if __name__ == "__main__":
