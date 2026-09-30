@@ -1,8 +1,10 @@
 name: trading-agent
 on:
   schedule:
-    - cron: '*/15 * * * *'   # 每15分钟请求一次(GitHub免费调度实际执行率约12%, 高频请求提升命中)
-  workflow_dispatch: {}       # 手动触发按钮
+    - cron: '*/15 * * * *'   # GitHub原生调度(兜底, 执行率低); 主力靠 cron-job.org 每30分钟触发
+  workflow_dispatch: {}       # cron-job.org 通过 API 触发此入口
+permissions:
+  contents: write             # 允许提交 state.json (可靠持久化)
 jobs:
   watch:
     runs-on: ubuntu-latest
@@ -11,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 恢复状态文件
+      - name: 恢复状态(cache加速)
         uses: actions/cache@v4
         with:
           path: engine/state.json
@@ -25,5 +27,12 @@ jobs:
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          DRY_RUN: "1"          # 首次先只告警不下单; 验证无误后改 "0" 启用模拟盘下单
+          DRY_RUN: "1"          # 观察期: 只告警不下单; 验证后改 "0" 启用模拟盘自动交易
         run: python engine/main.py
+      - name: 状态持久化(提交到仓库)
+        run: |
+          git config user.name "trading-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add engine/state.json
+          git diff --staged --quiet || git commit -m "state: $(date -u '+%m-%d %H:%M')"
+          git push || echo "推送失败(下轮自动重试)"
