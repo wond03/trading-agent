@@ -1,3 +1,4 @@
+# 暗夜猎手 (NightHunter) · 结构引擎
 # 结构引擎 —— 森林查尔斯课程模块A实现
 # 规则依据: A1-A13 (BOS实体确认/CHoCH/盘整屏蔽/极值取法绿bar原则/周期只推一级)
 import config as C
