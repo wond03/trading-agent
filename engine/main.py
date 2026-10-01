@@ -223,6 +223,7 @@ def get_htf_trend(client, inst_id, candles_base):
 
 def run_once():
     state = load_state()
+    print(f"[暗夜猎手 v3] 方案={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=双方案并行+开仓当根不判出场")
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
     last = state.get("last_run_ts", 0)
