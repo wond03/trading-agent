@@ -345,9 +345,10 @@ def run_once():
                                         break
                                     time.sleep(0.8)
                                 if fl > 0:
+                                    sl_fill = liquidation_sl(avg, sig.direction, leverage=used_lev)[0]  # 止损相对"真实成交价"重算
                                     line += f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
                                     state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                                               "entry": avg, "sl": sl_use, "tp": sig.tp,
+                                                               "entry": avg, "sl": sl_fill, "tp": sig.tp,
                                                                "size": fl, "ratio": 1.0,
                                                                "risk_free": False, "tp1_hit": False,
                                                                "leverage": used_lev, "profile": pname,
