@@ -16,6 +16,7 @@ INST_SPECS = {
 # ---------- 仓位模式(用户指定): 固定保证金 × 固定杠杆 ----------
 MARGIN_PER_TRADE = 5.0      # 每单保证金 5 USDT
 LEVERAGE_FIXED = 100        # 固定 100 倍
+INST_LEVER = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 50}   # 各品种实际最大杠杆(OKX实测: XAU上限50)
 LIQ_BUFFER_PCT = 0.003      # 爆仓线前 0.3% 强平(等效止损, 避免爆仓罚金)
 MMR_ESTIMATE = 0.005        # 维持保证金率估算(100倍档约0.4%~0.5%)
 BASE_TF = "1H"        # 主分析周期 (2026-10-02定: 15m经回测证明负期望, 回归1H)
