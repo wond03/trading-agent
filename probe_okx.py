@@ -1,20 +1,17 @@
-# 诊断: XAU/BTC 的 K线收盘价 vs 最新成交价 (查是否"行情源与可成交价"背离)
-import sys, os, json, requests
+# 关闭 XAU 持仓 (演示盘垃圾仓)
+import sys, os, json
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient
 c = OkxClient(simulated=True)
-
-print("=== 当前持仓 ===")
-p = c.get_positions()
-for x in (p.get("data") or []):
-    print("   ", x.get("instId"), x.get("posSide"), "pos=", x.get("pos"), "avgPx=", x.get("avgPx"), "lever=", x.get("lever"))
-if not (p.get("data") or []):
-    print("   （无）")
-
-print("=== K线收盘 vs 最新成交价 (同一合约) ===")
-for inst in ["XAU-USDT-SWAP", "BTC-USDT-SWAP"]:
-    k = c.get_candles(inst, "1H", 3)
-    t = requests.get("https://www.okx.com/api/v5/market/ticker", params={"instId": inst}, timeout=15).json()
-    last = t["data"][0]["last"] if t.get("code") == "0" else "?"
-    gap = (float(last) - k[-1].close) / k[-1].close * 100 if last != "?" else None
-    print(f"   {inst}: K线末收盘={k[-1].close:.2f}  最新价={last}  偏离={gap:+.2f}%" if gap is not None else f"   {inst}: K线末收盘={k[-1].close} 最新价={last}")
+print("=== 撤挂单 ===")
+for o in (c._get("/api/v5/trade/orders-pending", {"instType": "SWAP"}).get("data") or []):
+    print("  撤", o.get("instId"), o.get("ordId"), json.dumps(c._post("/api/v5/trade/cancel-order", {"instId": o.get("instId"), "ordId": o.get("ordId")}), ensure_ascii=False)[:100])
+print("=== 平 XAU 持仓 ===")
+for x in (c.get_positions().get("data") or []):
+    if "XAU" in x["instId"] and float(x["pos"]) != 0:
+        side = "sell" if x["posSide"] == "long" else "buy"
+        r = c.place_order(x["instId"], side, x["pos"], td_mode="isolated", pos_side=x["posSide"])
+        print("  平", x["instId"], x["posSide"], x["pos"], "->", json.dumps(r, ensure_ascii=False)[:180])
+print("=== 剩余持仓 ===")
+for x in (c.get_positions().get("data") or []):
+    print("  ", x["instId"], x["posSide"], x["pos"])
