@@ -1,6 +1,7 @@
-# 暗夜猎手 (NightHunter) 主循环 —— 串起全链路: 行情 → 结构 → 流动性 → 入场 → 风控 → (模拟盘下单) → 企微推送
-# 运行模式: DRY_RUN=1 只告警不下单(默认); AUTO_TRADE=1 启用模拟盘自动下单
-import os, sys, json, time, datetime
+# 暗夜猎手 (NightHunter) 主循环 —— 双周期方案并行: 4H+1H 与 4H+15m
+# 全链路: 行情 → 结构 → 流动性 → 入场 → 风控 → (模拟盘下单) → 企微推送
+# 运行模式: DRY_RUN=1 只告警不下单(默认); DRY_RUN=0 启用模拟盘自动下单
+import os, sys, json, time, datetime, contextlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config as C
 from structure import StructureEngine, Candle
@@ -16,8 +17,28 @@ WECOM = os.environ.get(C.WECOM_WEBHOOK_ENV, "")
 DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
 CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "10000"))   # 账户资金(可用 GitHub Secrets 覆盖)
 
+# ---------- 双方案配置 ----------
+PROFILES = getattr(C, "STRATEGY_PROFILES", {
+    "4H+1H": {"label": "4+1", "base_tf": C.BASE_TF, "htf": "4H",
+              "swing_left": 2, "swing_right": 2, "sweep_window": 20}})
+# 引擎模块运行时读取 config 全局, 故按方案临时切换这组参数
+_PROFILE_KEYS = ("BASE_TF", "SWING_LEFT", "SWING_RIGHT", "SWEEP_WINDOW")
+
+@contextlib.contextmanager
+def profile_ctx(prof):
+    saved = {k: getattr(C, k, None) for k in _PROFILE_KEYS}
+    C.BASE_TF = prof["base_tf"]
+    C.SWING_LEFT = prof.get("swing_left", 2)
+    C.SWING_RIGHT = prof.get("swing_right", 2)
+    C.SWEEP_WINDOW = prof.get("sweep_window", 20)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            setattr(C, k, v)
+
 def push(text):
-    print("=== 推送内容 ===\n" + text + "\n=== 结束 ===")   # 同时打印到日志(便于云端诊断)
+    print("=== 推送内容 ===\n" + text + "\n=== 结束 ===\n")   # 同时打印到日志(便于云端诊断)
     if not WECOM:
         print("[企微未配置]"); return
     try:
@@ -51,7 +72,7 @@ def simplify_reason(reason):
     r = r.replace("回踩 → 回踩走弱", "回踩走弱").replace("回踩 → 回踩企稳", "回踩企稳").replace("回踩 → 放量确认", "回踩放量确认")
     return r.strip().strip("→ ").replace(" → ", " → ")
 
-def format_signal(inst_id, sig, size, sl_use=None, liq=None):
+def format_signal(inst_id, sig, size, sl_use=None, liq=None, prof_label=""):
     """信号消息模板 (固定保证金模式: 显示爆仓价与强平止损)"""
     name = "BTC" if "BTC" in inst_id else "黄金"
     side = "做多" if sig.direction == "long" else "做空"
@@ -63,10 +84,10 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None):
         sl_txt, tp_txt = f"跌{sl_pct:.1f}%即离场", f"涨{tp_pct:.1f}%止盈"
     else:
         sl_txt, tp_txt = f"涨{sl_pct:.1f}%即离场", f"跌{tp_pct:.1f}%止盈"
-    unit = "BTC" if "BTC" in inst_id else "XAU"
     _g = getattr(sig, "grade", "A")
     _emoji = "🚨" if _g == "A" else "📣"
-    msg = (f"{_emoji} **{_g}级信号 · {name} {side}**\n\n"
+    tag = f"`{prof_label}` · " if prof_label else ""
+    msg = (f"{_emoji} **{tag}{_g}级信号 · {name} {side}**\n\n"
            f"**进场** {fmt_price(sig.entry)}\n"
            f"**止损** {fmt_price(sl)}  ({sl_txt})")
     if liq:
@@ -89,7 +110,7 @@ def build_daily_report(state, now_bj):
     pos = state.get("positions", [])
 
     lines = [f"🌙 **暗夜猎手 · 日报 {day}**", ""]
-    lines.append(f"**系统** ✅ 今日运行 {runs} 次")
+    lines.append(f"**系统** ✅ 今日运行 {runs} 次 · 方案 {len(PROFILES)} 套")
     lines.append(f"**交易** 信号 {len(sigs)} · 出场 {len(exs)} · 持仓 {len(pos)}")
     if exs:
         pnl = sum(h.get("pnl", 0) for h in exs)
@@ -98,22 +119,40 @@ def build_daily_report(state, now_bj):
     else:
         lines.append("**盈亏** 暂无平仓样本")
 
+    # ---- 双方案对照 ----
+    if len(PROFILES) > 1:
+        lines.append("")
+        lines.append("**方案对照（24h）**")
+        for pn, pf in PROFILES.items():
+            tag = pf.get("label", pn)
+            ps = [h for h in sigs if h.get("profile") == pn]
+            pe = [h for h in exs if h.get("profile") == pn]
+            ppnl = sum(h.get("pnl", 0) for h in pe)
+            wins = sum(1 for h in pe if h.get("pnl", 0) > 0)
+            stat = f"信号{len(ps)} 出场{len(pe)}"
+            stat += f" 盈亏{ppnl:+.2f}U 胜{wins}/{len(pe)}" if pe else " 暂无平仓"
+            lines.append(f"· `{tag}` {stat}")
+
     if pos:
         lines.append("")
         lines.append("**当前持仓**")
         for p in pos:
             nm = "BTC" if "BTC" in p["inst"] else "黄金"
             sd = "做多" if p["direction"] == "long" else "做空"
-            tag = "🧪模拟" if p.get("simulated") else "💰实盘"
-            lines.append(f"{tag} {nm}{sd} · 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} 标{fmt_price(p['tp'])}")
+            tg = "🧪模拟" if p.get("simulated") else "💰实盘"
+            pf = C.STRATEGY_PROFILES.get(p.get("profile", ""), {}).get("label", p.get("profile", ""))
+            ptag = f"[{pf}] " if pf else ""
+            lines.append(f"{tg} {ptag}{nm}{sd} · 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} 标{fmt_price(p['tp'])}")
 
     if sigs:
         lines.append("")
         _ga = sum(1 for h in sigs if h.get("grade", "A") == "A")
         _gb = len(sigs) - _ga
         lines.append(f"**24h 信号**（A级{_ga} · B级{_gb}）")
-        for h in sigs[-3:]:
-            lines.append(f"· [{h.get('grade','A')}] {h['detail']}")
+        for h in sigs[-4:]:
+            pf = C.STRATEGY_PROFILES.get(h.get("profile", ""), {}).get("label", h.get("profile", ""))
+            ptag = f"[{pf}] " if pf else ""
+            lines.append(f"· {ptag}[{h.get('grade','A')}] {h['detail']}")
 
     ms = state.get("market_snapshot", [])
     if ms:
@@ -171,16 +210,16 @@ def fetch_candles(client, inst_id, limit=300, tf=None):
         except Exception as e2:
             raise RuntimeError(f"主源失败({e}) 且备用源失败({e2})")
 
-def get_htf_trend(client, inst_id, candles_1h):
-    """大周期趋势: 优先用真实4H数据(课程A6: 只推一级); 失败回退1H斜率
-    4H窗口20根 ≈ 3.3天, 比原来1H-50根(2天)更稳定, 避免趋势频繁翻转"""
+def get_htf_trend(client, inst_id, candles_base):
+    """大周期趋势: 优先用真实4H数据(课程A6: 只推一级); 失败回退基础周期斜率
+    4H窗口20根 ≈ 3.3天, 比1H-50根更稳定, 避免趋势频繁翻转。两方案共用同一4H趋势。"""
     try:
         c4 = fetch_candles(client, inst_id, limit=60, tf="4H")
         if len(c4) >= 21:
             return ("up" if c4[-1].close > c4[-20].close else "down"), "4H"
     except Exception as e:
-        print(f"[HTF] 4H获取失败({type(e).__name__}), 回退1H斜率")
-    return ("up" if candles_1h[-1].close > candles_1h[-50].close else "down"), "1H(回退)"
+        print(f"[HTF] 4H获取失败({type(e).__name__}), 回退基础周期斜率")
+    return ("up" if candles_base[-1].close > candles_base[-50].close else "down"), "base(回退)"
 
 def run_once():
     state = load_state()
@@ -192,171 +231,186 @@ def run_once():
         return
     state["last_run_ts"] = time.time()
     today = now_bj.date().isoformat()
-    if state["daily"]["date"] != today:
-        state["daily"] = {"date": today, "trades": 0}
+    if state.get("daily", {}).get("date") != today:
+        state["daily"] = {"date": today, "trades": 0, "by_profile": {pn: 0 for pn in PROFILES}}
         state["run_count_today"] = 0
+    state["daily"].setdefault("by_profile", {pn: 0 for pn in PROFILES})
     state["run_count_today"] = state.get("run_count_today", 0) + 1
 
     client = OkxClient(simulated=True)
-    risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
-    risk.daily_trades = state["daily"]["trades"]
     reports = []
     market_notes = []
-
-    # 连亏保护(自进化阶段②-轻量): 最近3笔全亏 → 本轮不开新仓(持仓照常管理)
-    recent3 = [h for h in state.get("history", []) if h.get("type") == "exit"][-3:]
-    halt_new = len(recent3) == 3 and all(h.get("pnl", 0) <= 0 for h in recent3)
-    if halt_new:
-        print("[连亏保护] 最近3笔全亏, 本轮不开新仓")
 
     for inst_id, sym_cfg in C.SYMBOLS.items():
         if not sym_cfg.get("enabled"):
             continue
-        try:
-            candles = fetch_candles(client, inst_id)
-        except Exception as e:
-            reports.append(f"❌ {inst_id} 行情失败: {e}"); continue
-        if len(candles) < 120:
-            continue
-        se, le = StructureEngine(), LiquidityEngine()
-        se.process(candles); le.process(candles)
-        htf, htf_src = get_htf_trend(client, inst_id, candles)
-        px = candles[-1].close
 
-        # ---- 市场状态采集(供日报) ----
-        _nmk = "BTC" if "BTC" in inst_id else "黄金"
-        _trend = {"up": "上涨", "down": "下跌", None: "震荡"}.get(se.trend, "不明")
-        _af = le.snapshot()["active_fvgs"]
-        _fvg = f"{_af[-1]['bottom']:,.0f}~{_af[-1]['top']:,.0f}" if _af else "无"
-        _lv = le.sweeps[-1] if le.sweeps else None
-        _sweep_txt = f"{'扫上' if _lv[1]=='up' else '扫下'}{_lv[2]:,.0f}({_lv[3]}点)" if _lv else "无近期截取"
-        market_notes.append(f"· {_nmk}: {_trend}趋势 | 活跃FVG {_fvg} | 最近截取 {_sweep_txt}")
+        # ---- 逐方案运行 (4+1 / 4+15 并行) ----
+        for pname, prof in PROFILES.items():
+            plabel = prof.get("label", pname)
+            with profile_ctx(prof):
+                try:
+                    candles = fetch_candles(client, inst_id, tf=prof["base_tf"])
+                except Exception as e:
+                    reports.append(f"❌ `{plabel}` {inst_id} 行情失败: {e}"); continue
+                if len(candles) < 120:
+                    continue
+                se, le = StructureEngine(), LiquidityEngine()
+                se.process(candles); le.process(candles)
+                htf, htf_src = get_htf_trend(client, inst_id, candles)
+                px = candles[-1].close
 
-        # ---- 新信号检测 (含指纹去重: 同一信号只推一次) ----
-        ee = EntryEngine()
-        sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles)-1)
-        if sig:
-            # 指纹用稳定特征: 品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
-            fp = f"{inst_id}|{sig.direction}|{round(sig.sl / 10) * 10}"
-            if fp in state.get("pushed_signals", []):
-                print(f"[跳过重复信号] {fp}")
-                sig = None
-        # 该品种已有持仓 → 不重复开仓(防同波行情过度交易)
-        _has_pos = any(p["inst"] == inst_id for p in state.get("positions", []))
-        if sig and _has_pos:
-            print(f"[跳过] {inst_id} 已有持仓, 不重复开仓")
-            sig = None
-        if sig:
-            ok, detail = risk.check_gates(sig)
-            if ok and halt_new:
-                reports.append(f"🛑 **连亏保护** 最近3笔全亏，跳过开仓（{inst_id}）")
-                ok = False
-            if ok:
-                size = size_fixed_margin(px, inst_id)
-                sl_use, liq_px = liquidation_sl(sig.entry, sig.direction)
-                line = format_signal(inst_id, sig, size, sl_use, liq_px)
-                if not DRY_RUN:
-                    _ps = "long" if sig.direction == "long" else "short"
-                    client.set_leverage(inst_id, size["leverage"], sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
-                    side = "buy" if sig.direction == "long" else "sell"
-                    resp = client.place_order(inst_id, side, size["lots"], td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
-                    ok_txt = "✅ 已自动下单" if resp.get("code") == "0" else f"❌ 下单失败: {str(resp)[:80]}"
-                    line = line.replace("> 模拟观察模式，未实际下单", f"> {ok_txt}")
-                    if resp.get("code") == "0":
-                        state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                                   "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
-                                                   "size": size["lots"], "ratio": 1.0,
-                                                   "risk_free": False, "tp1_hit": False,
-                                                   "leverage": size["leverage"],
-                                                   "opened": int(time.time())})
-                        state["daily"]["trades"] += 1
+                # ---- 市场状态采集(供日报) ----
+                _nmk = "BTC" if "BTC" in inst_id else "黄金"
+                _trend = {"up": "上涨", "down": "下跌", None: "震荡"}.get(se.trend, "不明")
+                _af = le.snapshot()["active_fvgs"]
+                _fvg = f"{_af[-1]['bottom']:,.0f}~{_af[-1]['top']:,.0f}" if _af else "无"
+                _lv = le.sweeps[-1] if le.sweeps else None
+                _sweep_txt = f"{'扫上' if _lv[1]=='up' else '扫下'}{_lv[2]:,.0f}({_lv[3]}点)" if _lv else "无近期截取"
+                market_notes.append(f"· `{plabel}` {_nmk}: {_trend}趋势 | 活跃FVG {_fvg} | 最近截取 {_sweep_txt}")
+
+                # ---- 风控/连亏保护 (按方案独立) ----
+                risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
+                risk.daily_trades = state["daily"]["by_profile"].get(pname, 0)
+                _rec = [h for h in state.get("history", [])
+                        if h.get("type") == "exit" and h.get("profile") == pname][-3:]
+                halt_new = len(_rec) == 3 and all(h.get("pnl", 0) <= 0 for h in _rec)
+                if halt_new:
+                    print(f"[连亏保护] {plabel} 最近3笔全亏, 本轮不开新仓")
+
+                # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
+                ee = EntryEngine()
+                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1)
+                fp = None
+                if sig:
+                    # 指纹用稳定特征: 方案+品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
+                    fp = f"{pname}|{inst_id}|{sig.direction}|{round(sig.sl / 10) * 10}"
+                    if fp in state.get("pushed_signals", []):
+                        print(f"[跳过重复信号] {fp}")
+                        sig = None
+                # 该方案在该品种已有持仓 → 不重复开仓(方案间互不阻塞)
+                _has_pos = any(p["inst"] == inst_id and p.get("profile", "4H+1H") == pname
+                               for p in state.get("positions", []))
+                if sig and _has_pos:
+                    print(f"[跳过] {plabel} {inst_id} 已有持仓, 不重复开仓")
+                    sig = None
+
+                if sig:
+                    ok, detail = risk.check_gates(sig)
+                    if ok and halt_new:
+                        reports.append(f"🛑 **`{plabel}` 连亏保护** 最近3笔全亏，跳过开仓（{inst_id}）")
+                        ok = False
+                    if ok:
+                        size = size_fixed_margin(px, inst_id)
+                        sl_use, liq_px = liquidation_sl(sig.entry, sig.direction)
+                        line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
+                        if not DRY_RUN:
+                            _ps = "long" if sig.direction == "long" else "short"
+                            client.set_leverage(inst_id, size["leverage"], sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
+                            side = "buy" if sig.direction == "long" else "sell"
+                            resp = client.place_order(inst_id, side, size["lots"],
+                                                      td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
+                            ok_txt = "✅ 已自动下单" if resp.get("code") == "0" else f"❌ 下单失败: {str(resp)[:80]}"
+                            line = line.replace("> 模拟观察模式，未实际下单", f"> {ok_txt}")
+                            if resp.get("code") == "0":
+                                state["positions"].append({"inst": inst_id, "direction": sig.direction,
+                                                           "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
+                                                           "size": size["lots"], "ratio": 1.0,
+                                                           "risk_free": False, "tp1_hit": False,
+                                                           "leverage": size["leverage"], "profile": pname,
+                                                           "opened": int(time.time())})
+                                state["daily"]["trades"] += 1
+                                state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
+                        else:
+                            # DRY_RUN: 建立虚拟持仓 → 观察期自动统计模拟盈亏
+                            state["positions"].append({"inst": inst_id, "direction": sig.direction,
+                                                       "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
+                                                       "size": size["lots"], "ratio": 1.0,
+                                                       "risk_free": False, "tp1_hit": False,
+                                                       "leverage": size["leverage"], "profile": pname,
+                                                       "simulated": True, "opened": int(time.time())})
+                        reports.append(line)
+                        _nmx = "BTC" if "BTC" in inst_id else "黄金"
+                        _sdx = "做多" if sig.direction == "long" else "做空"
+                        _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
+                        state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
+                            "profile": pname, "grade": getattr(sig, "grade", "A"),
+                            "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
+                    else:
+                        reports.append(f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
+                    # 记录指纹(去重), 保留最近60条
+                    state.setdefault("pushed_signals", []).append(fp)
+                    state["pushed_signals"] = state["pushed_signals"][-60:]
                 else:
-                    # DRY_RUN: 建立虚拟持仓 → 观察期自动统计模拟盈亏
-                    state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                               "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
-                                               "size": size["lots"], "ratio": 1.0,
-                                               "risk_free": False, "tp1_hit": False,
-                                               "leverage": size["leverage"], "simulated": True,
-                                               "opened": int(time.time())})
-                reports.append(line)
-                _nmx = "BTC" if "BTC" in inst_id else "黄金"
-                _sdx = "做多" if sig.direction == "long" else "做空"
-                _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
-                state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
-                    "grade": getattr(sig, "grade", "A"),
-                    "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
-            else:
-                reports.append(f"⚠️ **{inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
-            # 记录指纹(去重), 保留最近60条
-            state.setdefault("pushed_signals", []).append(fp)
-            state["pushed_signals"] = state["pushed_signals"][-60:]
+                    # ---- B级机会观察(埋伏提示: 截取+回踩到位, 尚未转势) ----
+                    w = ee.evaluate_watch(candles, se, le, htf, bar_i=len(candles) - 1)
+                    if w:
+                        wfp = f"WATCH|{pname}|{inst_id}|{w['direction']}|{round(w['sweep_level'] / 10) * 10}"
+                        if wfp not in state.get("pushed_watch", []):
+                            _wnm = "BTC" if "BTC" in inst_id else "黄金"
+                            _wd = "做多" if w["direction"] == "up" else "做空"
+                            reports.append(
+                                f"👀 **`{plabel}` B级机会观察 · {_wnm}{_wd}**\n\n"
+                                f"**已完成** 扫过流动性 {fmt_price(w['sweep_level'])}（{w['sweep_pts']}点），价格回踩到位\n"
+                                f"**等什么** 等『实体突破结构』的转势确认 → 确认后升级为 A 级信号\n"
+                                f"**现价** {fmt_price(w['px'])}")
+                            state.setdefault("pushed_watch", []).append(wfp)
+                            state["pushed_watch"] = state["pushed_watch"][-60:]
 
-        # ---- B级机会观察(埋伏提示: 截取+回踩到位, 尚未转势) ----
-        if not sig:
-            w = ee.evaluate_watch(candles, se, le, htf, bar_i=len(candles) - 1)
-            if w:
-                wfp = f"WATCH|{inst_id}|{w['direction']}|{round(w['sweep_level'] / 10) * 10}"
-                if wfp not in state.get("pushed_watch", []):
-                    _wnm = "BTC" if "BTC" in inst_id else "黄金"
-                    _wd = "做多" if w["direction"] == "up" else "做空"
-                    reports.append(
-                        f"👀 **B级机会观察 · {_wnm}{_wd}**\n\n"
-                        f"**已完成** 扫过流动性 {fmt_price(w['sweep_level'])}（{w['sweep_pts']}点），价格回踩到位\n"
-                        f"**等什么** 等『实体突破结构』的转势确认 → 确认后升级为 A 级信号\n"
-                        f"**现价** {fmt_price(w['px'])}")
-                    state.setdefault("pushed_watch", []).append(wfp)
-                    state["pushed_watch"] = state["pushed_watch"][-40:]
-
-        # ---- 持仓管理 (出场引擎; 完整恢复状态, 修复Bug2) ----
-        for p in list(state["positions"]):
-            if p["inst"] != inst_id:
-                continue
-            pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
-                           size=p.get("ratio", 1.0), opened_bar=0)
-            pos.risk_free = p.get("risk_free", False)
-            pos.tp1_hit = p.get("tp1_hit", False)
-            xe = ExitEngine()
-            acts = xe.manage(pos, candles, se, le)
-            exited = False
-            for act in acts:
-                if act[0] == "EXIT":
-                    _nm = "BTC" if "BTC" in inst_id else "黄金"
-                    _sd = "多单" if p["direction"] == "long" else "空单"
-                    exit_px = act[2] if len(act) > 2 else p["entry"]
-                    ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
-                    sign = 1 if p["direction"] == "long" else -1
-                    pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
-                    tag = "(模拟)" if p.get("simulated") else ""
-                    reports.append(f"🏁 **出场{tag} · {_nm} {_sd}**\n**原因** {act[1]}\n"
-                                   f"**进场** {fmt_price(p['entry'])} → **出场** {fmt_price(exit_px)}\n"
-                                   f"**盈亏** {pnl:+.2f}U ({pnl / C.MARGIN_PER_TRADE * 100:+.0f}%保证金)")
-                    state.setdefault("history", []).append({"type": "exit", "ts": time.time(), "pnl": round(pnl, 2),
-                        "detail": f"{_nm} {p['direction'].upper()} {pnl:+.2f}U"})
-                    if not DRY_RUN:
-                        side = "sell" if p["direction"] == "long" else "buy"
-                        client.close_position(inst_id, side, p["size"], td_mode=sym_cfg.get("td_mode", "cross"))
-                    state["positions"].remove(p)
-                    exited = True
-                    break
-                elif act[0] == "PARTIAL_TP":
-                    cut = round(p["size"] * 0.5, 6)
-                    if not DRY_RUN:
-                        side = "sell" if p["direction"] == "long" else "buy"
-                        client.close_position(inst_id, side, cut, td_mode=sym_cfg.get("td_mode", "cross"))
-                    p["size"] = round(p["size"] - cut, 6)
-                    p["ratio"] = pos.size
-                    p["tp1_hit"] = True
-                    reports.append(f"{inst_id} {act[1]} 已平{cut}")
-                elif act[0] == "MOVE_SL":
-                    p["sl"] = pos.sl
-                    p["risk_free"] = pos.risk_free
-                    reports.append(f"{inst_id} {act[1]}")
-            if not exited:
-                # 状态写回(修复Bug2: 保本/部分止盈持久化)
-                p["sl"] = pos.sl
-                p["risk_free"] = pos.risk_free
-                p["tp1_hit"] = pos.tp1_hit
-                p["ratio"] = pos.size
+                # ---- 持仓管理 (出场引擎; 按方案过滤) ----
+                for p in list(state["positions"]):
+                    if p["inst"] != inst_id or p.get("profile", "4H+1H") != pname:
+                        continue
+                    pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
+                                   size=p.get("ratio", 1.0), opened_bar=0)
+                    pos.risk_free = p.get("risk_free", False)
+                    pos.tp1_hit = p.get("tp1_hit", False)
+                    xe = ExitEngine()
+                    acts = xe.manage(pos, candles, se, le)
+                    exited = False
+                    _ps = "long" if p["direction"] == "long" else "short"
+                    for act in acts:
+                        if act[0] == "EXIT":
+                            _nm = "BTC" if "BTC" in inst_id else "黄金"
+                            _sd = "多单" if p["direction"] == "long" else "空单"
+                            exit_px = act[2] if len(act) > 2 else p["entry"]
+                            ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
+                            sign = 1 if p["direction"] == "long" else -1
+                            pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
+                            tag = "(模拟)" if p.get("simulated") else ""
+                            reports.append(f"🏁 **`{plabel}` 出场{tag} · {_nm} {_sd}**\n**原因** {act[1]}\n"
+                                           f"**进场** {fmt_price(p['entry'])} → **出场** {fmt_price(exit_px)}\n"
+                                           f"**盈亏** {pnl:+.2f}U ({pnl / C.MARGIN_PER_TRADE * 100:+.0f}%保证金)")
+                            state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
+                                "profile": pname, "pnl": round(pnl, 2),
+                                "detail": f"[{plabel}] {_nm} {p['direction'].upper()} {pnl:+.2f}U"})
+                            if not DRY_RUN:
+                                side = "sell" if p["direction"] == "long" else "buy"
+                                client.close_position(inst_id, side, p["size"],
+                                                      td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
+                            state["positions"].remove(p)
+                            exited = True
+                            break
+                        elif act[0] == "PARTIAL_TP":
+                            cut = round(p["size"] * 0.5, 6)
+                            if not DRY_RUN:
+                                side = "sell" if p["direction"] == "long" else "buy"
+                                client.close_position(inst_id, side, cut,
+                                                      td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
+                            p["size"] = round(p["size"] - cut, 6)
+                            p["ratio"] = pos.size
+                            p["tp1_hit"] = True
+                            reports.append(f"`{plabel}` {inst_id} {act[1]} 已平{cut}")
+                        elif act[0] == "MOVE_SL":
+                            p["sl"] = pos.sl
+                            p["risk_free"] = pos.risk_free
+                            reports.append(f"`{plabel}` {inst_id} {act[1]}")
+                    if not exited:
+                        # 状态写回(修复Bug2: 保本/部分止盈持久化)
+                        p["sl"] = pos.sl
+                        p["risk_free"] = pos.risk_free
+                        p["tp1_hit"] = pos.tp1_hit
+                        p["ratio"] = pos.size
 
     # ---- 每日日报: 北京时间8点后当天首次运行触发(窗口放宽, 防止调度错过8点档) ----
     if now_bj.hour >= 8 and state.get("daily_report_date") != today:
