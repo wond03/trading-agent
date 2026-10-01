@@ -10,4 +10,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install requests
-      - run: python probe_okx.py
+      - name: OKX链路自检
+        run: python probe_okx.py
+        env:
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
