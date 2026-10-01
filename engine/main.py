@@ -321,8 +321,9 @@ def run_once():
                     if ok:
                         _ps = "long" if sig.direction == "long" else "short"
                         _td = sym_cfg.get("td_mode", "isolated")
-                        # 杠杆: 各品种上限不同(XAU实测最高50), 写死100会被OKX拒(59102)
-                        used_lev = resolve_leverage(client, inst_id, C.LEVERAGE_FIXED, _td, _ps) if not DRY_RUN else C.LEVERAGE_FIXED
+                        # 杠杆: 各品种实际上限不同(BTC=100, XAU=50); 写死100会被OKX拒(59102)
+                        want_lev = C.INST_LEVER.get(inst_id, C.LEVERAGE_FIXED)
+                        used_lev = resolve_leverage(client, inst_id, want_lev, _td, _ps) if not DRY_RUN else want_lev
                         size = size_fixed_margin(px, inst_id, leverage=used_lev)
                         sl_use, liq_px = liquidation_sl(sig.entry, sig.direction, leverage=used_lev)
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
@@ -332,19 +333,32 @@ def run_once():
                             resp = client.place_order(inst_id, side, size["lots"], td_mode=_td, pos_side=_ps)
                             dd = (resp.get("data") or [{}])[0]
                             print(f"[下单] {inst_id} {side} {size['lots']} lev={used_lev} -> {json.dumps(resp, ensure_ascii=False)[:280]}")
-                            # ★核心: 必须同时校验 code 与 订单级 sCode, 否则会把被拒单记成持仓(假持仓bug)
+                            # ★核心1: 同时校验 code 与 订单级 sCode(被拒单不能记持仓)
                             if resp.get("code") == "0" and dd.get("sCode") == "0":
-                                line += f"\n\n> ✅ 已开仓 {size['lots']}张 · 订单 {dd.get('ordId')}"
-                                state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                                           "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
-                                                           "size": size["lots"], "ratio": 1.0,
-                                                           "risk_free": False, "tp1_hit": False,
-                                                           "leverage": used_lev, "profile": pname,
-                                                           "run_id": state["last_run_ts"],
-                                                           "opened": int(time.time())})
-                                state["daily"]["trades"] += 1
-                                state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
-                                _opened = True
+                                ordid = dd.get("ordId")
+                                # ★核心2: 市价单可能"已接受但未成交"(真成交才算开仓), 轮询确认
+                                stt, fl, avg = "live", 0.0, sig.entry
+                                for _ in range(5):
+                                    od = (client.get_order(inst_id, ordid).get("data") or [{}])[0]
+                                    stt = od.get("state"); fl = float(od.get("accFillSz") or 0); avg = float(od.get("avgPx") or sig.entry)
+                                    if fl > 0 or stt in ("filled", "partially_filled", "canceled"):
+                                        break
+                                    time.sleep(0.8)
+                                if fl > 0:
+                                    line += f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
+                                    state["positions"].append({"inst": inst_id, "direction": sig.direction,
+                                                               "entry": avg, "sl": sl_use, "tp": sig.tp,
+                                                               "size": fl, "ratio": 1.0,
+                                                               "risk_free": False, "tp1_hit": False,
+                                                               "leverage": used_lev, "profile": pname,
+                                                               "run_id": state["last_run_ts"],
+                                                               "opened": int(time.time())})
+                                    state["daily"]["trades"] += 1
+                                    state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
+                                    _opened = True
+                                else:
+                                    client.cancel_order(inst_id, ordid)
+                                    line += f"\n\n> ❌ 下单未成交(状态{stt})，已撤单，未建仓"
                             else:
                                 line += f"\n\n> ❌ 开仓失败 [{dd.get('sCode') or resp.get('code')}] {dd.get('sMsg') or resp.get('msg')}"
                         else:
