@@ -147,27 +147,40 @@ def save_state(s):
 
 PAIR_MAP = {"BTC-USDT-SWAP": "BTC_USDT", "XAU-USDT-SWAP": "PAXG_USDT"}
 
-def _fetch_gate(inst_id, limit):
+def _fetch_gate(inst_id, limit, tf="1h"):
     import requests
     pair = PAIR_MAP.get(inst_id, "BTC_USDT")
     r = requests.get("https://api.gateio.ws/api/v4/spot/candlesticks",
-                     params={"currency_pair": pair, "interval": "1h", "limit": limit}, timeout=15)
+                     params={"currency_pair": pair, "interval": tf, "limit": limit}, timeout=15)
     return [Candle(int(d[0]), float(d[5]), float(d[3]), float(d[4]), float(d[2]), float(d[1])) for d in r.json()]
 
-def fetch_candles(client, inst_id, limit=300):
+def fetch_candles(client, inst_id, limit=300, tf=None):
     """数据源路由 + 故障自愈: OKX主力 → 失败自动切换 Gate.io 备用"""
+    tf = tf or C.BASE_TF
+    gate_tf = {"1H": "1h", "4H": "4h", "15m": "15m"}.get(tf, "1h")
     if os.environ.get("DATA_SOURCE") == "gate":
-        return _fetch_gate(inst_id, limit)
+        return _fetch_gate(inst_id, limit, gate_tf)
     try:
-        return client.get_candles(inst_id, C.BASE_TF, limit)
+        return client.get_candles(inst_id, tf, limit)
     except Exception as e:
-        print(f"[自愈] OKX行情失败({type(e).__name__}), 切换备用源Gate.io...")
+        print(f"[自愈] OKX行情({tf})失败({type(e).__name__}), 切换备用源...")
         try:
-            k = _fetch_gate(inst_id, limit)
-            print(f"[自愈] 备用源成功: {len(k)}根K线")
+            k = _fetch_gate(inst_id, limit, gate_tf)
+            print(f"[自愈] 备用源成功: {len(k)}根")
             return k
         except Exception as e2:
             raise RuntimeError(f"主源失败({e}) 且备用源失败({e2})")
+
+def get_htf_trend(client, inst_id, candles_1h):
+    """大周期趋势: 优先用真实4H数据(课程A6: 只推一级); 失败回退1H斜率
+    4H窗口20根 ≈ 3.3天, 比原来1H-50根(2天)更稳定, 避免趋势频繁翻转"""
+    try:
+        c4 = fetch_candles(client, inst_id, limit=60, tf="4H")
+        if len(c4) >= 21:
+            return ("up" if c4[-1].close > c4[-20].close else "down"), "4H"
+    except Exception as e:
+        print(f"[HTF] 4H获取失败({type(e).__name__}), 回退1H斜率")
+    return ("up" if candles_1h[-1].close > candles_1h[-50].close else "down"), "1H(回退)"
 
 def run_once():
     state = load_state()
@@ -207,7 +220,7 @@ def run_once():
             continue
         se, le = StructureEngine(), LiquidityEngine()
         se.process(candles); le.process(candles)
-        htf = "up" if candles[-1].close > candles[-50].close else "down"
+        htf, htf_src = get_htf_trend(client, inst_id, candles)
         px = candles[-1].close
 
         # ---- 市场状态采集(供日报) ----
