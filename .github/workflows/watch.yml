@@ -1,8 +1,6 @@
 name: trading-agent
 on:
-  schedule:
-    - cron: '*/5 * * * *'    # 2026-10-02: 提高频率攒样本; 主力靠 cron-job.org 频繁触发(建议5分钟)
-  workflow_dispatch: {}       # cron-job.org 通过 API 触发此入口
+  workflow_dispatch: {}       # 唯一入口: 由 cron-job.org 每15分钟触发(不用GitHub自带schedule, 其执行率过低)
 permissions:
   contents: write             # 允许提交 state.json (可靠持久化)
 concurrency:
