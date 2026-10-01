@@ -248,6 +248,22 @@ def run_once():
             state.setdefault("pushed_signals", []).append(fp)
             state["pushed_signals"] = state["pushed_signals"][-60:]
 
+        # ---- B级机会观察(埋伏提示: 截取+回踩到位, 尚未转势) ----
+        if not sig:
+            w = ee.evaluate_watch(candles, se, le, htf, bar_i=len(candles) - 1)
+            if w:
+                wfp = f"WATCH|{inst_id}|{w['direction']}|{round(w['sweep_level'] / 10) * 10}"
+                if wfp not in state.get("pushed_watch", []):
+                    _wnm = "BTC" if "BTC" in inst_id else "黄金"
+                    _wd = "做多" if w["direction"] == "up" else "做空"
+                    reports.append(
+                        f"👀 **B级机会观察 · {_wnm}{_wd}**\n\n"
+                        f"**已完成** 扫过流动性 {fmt_price(w['sweep_level'])}（{w['sweep_pts']}点），价格回踩到位\n"
+                        f"**等什么** 等『实体突破结构』的转势确认 → 确认后升级为 A 级信号\n"
+                        f"**现价** {fmt_price(w['px'])}")
+                    state.setdefault("pushed_watch", []).append(wfp)
+                    state["pushed_watch"] = state["pushed_watch"][-40:]
+
         # ---- 持仓管理 (出场引擎; 完整恢复状态, 修复Bug2) ----
         for p in list(state["positions"]):
             if p["inst"] != inst_id:
