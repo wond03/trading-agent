@@ -90,3 +90,4 @@ INST_ID_MAP = {"BTC-USDT-SWAP": "BTC-USDT-SWAP", "PAXG-USDT": "PAXG-USDT"}
 
 # ---------- 告警 ----------
 WECOM_WEBHOOK_ENV = "WECOM_WEBHOOK"
+PUSH_WATCH = False            # 2026-10-02 用户决定: 关闭"B级机会观察"推送(意义不大, 减少噪音)
