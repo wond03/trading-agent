@@ -5,8 +5,8 @@
   "trades": 0
  },
  "last_signal_bar": {},
- "last_run_ts": 1790857832.7359164,
- "run_count_today": 42,
+ "last_run_ts": 1790859449.6372952,
+ "run_count_today": 43,
  "history": [
   {
    "type": "signal",
@@ -24,6 +24,8 @@
  ],
  "pushed_watch": [
   "WATCH|BTC-USDT-SWAP|down|83820",
-  "WATCH|XAU-USDT-SWAP|up|4180"
- ]
+  "WATCH|XAU-USDT-SWAP|up|4180",
+  "WATCH|BTC-USDT-SWAP|up|83310"
+ ],
+ "fail_streak": 0
 }
