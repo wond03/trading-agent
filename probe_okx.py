@@ -20,15 +20,15 @@ except Exception as e:
     print(f"2) 余额异常: {e}")
 
 print("3) 设置杠杆(100倍 逐仓):")
-print("   ", c.set_leverage("BTC-USDT-SWAP", 100, "isolated"))
+print("   ", c.set_leverage("BTC-USDT-SWAP", 100, "isolated", pos_side="long"))
 
 print("4) 测试下单(买 0.01张 市价):")
-r = c.place_order("BTC-USDT-SWAP", "buy", 0.01, td_mode="isolated")
+r = c.place_order("BTC-USDT-SWAP", "buy", 0.01, td_mode="isolated", pos_side="long")
 print("   ", json.dumps(r, ensure_ascii=False)[:300])
 
 if r.get("code") == "0":
     print("5) 立即平仓:")
-    r2 = c.close_position("BTC-USDT-SWAP", "sell", 0.01, td_mode="isolated")
+    r2 = c.close_position("BTC-USDT-SWAP", "sell", 0.01, td_mode="isolated", pos_side="long")
     print("   ", json.dumps(r2, ensure_ascii=False)[:300])
     print("✅ 下单+平仓链路正常")
 else:
