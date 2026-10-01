@@ -1,4 +1,4 @@
-# 诊断6: 找出能"同时保留 TP+SL"的方法 (含 attachAlgoOrds 路线)
+# 诊断7: attachAlgoOrds 路线 (开仓附带TP/SL), 用小额BTC空单, 不碰现有持仓
 import sys, os, json, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient
@@ -19,29 +19,16 @@ def clean(inst=INST):
     time.sleep(1)
 
 clean()
-print("== A: conditional 组合, tp 更近(85000) ==")
-c.place_tpsl(INST, "long", tp=85000, sl=84527.6); time.sleep(1.5); allpend("A"); clean()
-
-print("== B: conditiona组合 + TriggerPxType=mark ==")
-print("resp:", json.dumps(c._post("/api/v5/trade/order-algo", {
-    "instId": INST, "tdMode": "isolated", "side": "sell", "posSide": "long",
-    "ordType": "conditional", "closeFraction": "1",
-    "tpTriggerPx": "87747.8", "tpOrdPx": "-1", "tpTriggerPxType": "mark",
-    "slTriggerPx": "84527.6", "slOrdPx": "-1", "slTriggerPxType": "mark"}), ensure_ascii=False)[:200])
-time.sleep(1.5); allpend("B"); clean()
-
-print("== D: attachAlgoOrds (开仓时附带TP/SL) 路线, 用最小XAU单测试 ==")
-XI = "XAU-USDT-SWAP"
-c.set_leverage(XI, 50, pos_side="long")
+c.set_leverage(INST, 100, pos_side="short")
 r = c._post("/api/v5/trade/order", {
-    "instId": XI, "tdMode": "isolated", "side": "buy", "posSide": "long",
-    "ordType": "market", "sz": "1",
-    "attachAlgoOrds": [{"tpTriggerPx": "4330", "tpOrdPx": "-1", "slTriggerPx": "4120", "slOrdPx": "-1"}]})
-print("D_ORDER_RESP:", json.dumps(r, ensure_ascii=False)[:250]); time.sleep(2)
-allpend("D_ALGO", XI)
-for p in (c.get_positions(inst_id=XI).get("data") or []):
-    print("D_POS", {k: p.get(k) for k in ("instId", "posSide", "pos", "avgPx")})
-# 收尾: 撤单+平掉测试仓
-clean(XI)
-c.close_position(XI, "sell", "1", td_mode="isolated", pos_side="long"); time.sleep(1)
-print("D_AFTER_CLOSE:", [(p.get("instId"), p.get("pos")) for p in (c.get_positions(inst_id=XI).get("data") or [])])
+    "instId": INST, "tdMode": "isolated", "side": "sell", "posSide": "short",
+    "ordType": "market", "sz": "0.01",
+    "attachAlgoOrds": [{"tpTriggerPx": "83500", "tpOrdPx": "-1", "slTriggerPx": "85600", "slOrdPx": "-1"}]})
+print("ORDER_RESP=", json.dumps(r, ensure_ascii=False)[:250]); time.sleep(2)
+ps = [p for p in (c.get_positions(inst_id=INST).get("data") or []) if p.get("posSide") == "short"]
+print("SHORT_POS=", [{k: p.get(k) for k in ("pos", "avgPx")} for p in ps])
+allpend("AFTER_ATTACH")
+print("收尾: 平掉测试空单")
+c.close_position(INST, "buy", "0.01", td_mode="isolated", pos_side="short"); time.sleep(1.5)
+clean()
+print("SHORT_LEFT=", [p.get("pos") for p in (c.get_positions(inst_id=INST).get("data") or []) if p.get("posSide") == "short"])
