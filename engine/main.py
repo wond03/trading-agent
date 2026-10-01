@@ -361,6 +361,9 @@ def run_once():
                 for p in list(state["positions"]):
                     if p["inst"] != inst_id or p.get("profile", "4H+1H") != pname:
                         continue
+                    # 本轮新建的仓位: 当根K线不做出场判断(修复"开仓即被当根影线打损"顽疾)
+                    if p.get("run_id") == state.get("last_run_ts"):
+                        continue
                     pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
                                    size=p.get("ratio", 1.0), opened_bar=0)
                     pos.risk_free = p.get("risk_free", False)
