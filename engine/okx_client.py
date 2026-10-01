@@ -92,6 +92,58 @@ class OkxClient:
     def get_pending_orders(self, inst_type="SWAP"):
         return self._get("/api/v5/trade/orders-pending", {"instType": inst_type})
 
+    # ---------- 止盈止损 (策略委托, 真实挂到交易所, OKX App持仓页可见) ----------
+    def get_tick(self, inst_id):
+        """最小价格变动tick(缓存); 止盈止损价必须对齐tick, 否则OKX拒单"""
+        if not hasattr(self, "_tick_cache"):
+            self._tick_cache = {}
+        if inst_id in self._tick_cache:
+            return self._tick_cache[inst_id]
+        t = 0.1
+        try:
+            d = requests.get(f"{self.base}/api/v5/public/instruments",
+                             params={"instType": "SWAP", "instId": inst_id}, timeout=self.timeout).json()
+            t = float(d["data"][0]["tickSz"])
+        except Exception:
+            pass
+        self._tick_cache[inst_id] = t
+        return t
+
+    def round_tick(self, inst_id, px):
+        t = self.get_tick(inst_id)
+        return round(round(float(px) / t) * t, 8)
+
+    def place_tpsl(self, inst_id, pos_side, td_mode="isolated", tp=None, sl=None, close_fraction="1"):
+        """给当前持仓挂止盈止损(策略委托); closeFraction=1 表示平全部仓位
+        pos_side=long → 平仓方向 sell; pos_side=short → 平仓方向 buy"""
+        body = {"instId": inst_id, "tdMode": td_mode,
+                "side": "sell" if pos_side == "long" else "buy",
+                "posSide": pos_side, "ordType": "conditional",
+                "closeFraction": str(close_fraction)}
+        if tp:
+            body["tpTriggerPx"] = str(self.round_tick(inst_id, tp)); body["tpOrdPx"] = "-1"
+        if sl:
+            body["slTriggerPx"] = str(self.round_tick(inst_id, sl)); body["slOrdPx"] = "-1"
+        return self._post("/api/v5/trade/order-algo", body)
+
+    def cancel_algo(self, inst_id, algo_id):
+        return self._post("/api/v5/trade/cancel-algos", [{"instId": inst_id, "algoId": algo_id}])
+
+    def get_algo_pending(self, inst_type="SWAP", inst_id=None):
+        p = {"instType": inst_type, "ordType": "conditional"}
+        if inst_id:
+            p["instId"] = inst_id
+        return self._get("/api/v5/trade/orders-algo-pending", p)
+
+    def get_algo(self, inst_id, algo_id):
+        return self._get("/api/v5/trade/order-algo", {"instId": inst_id, "algoId": algo_id})
+
+    def get_fills(self, inst_type="SWAP", inst_id=None, limit=20):
+        p = {"instType": inst_type, "limit": str(limit)}
+        if inst_id:
+            p["instId"] = inst_id
+        return self._get("/api/v5/trade/fills", p)
+
     def get_balance(self):
         return self._get("/api/v5/account/balance", None)
 
