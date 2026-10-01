@@ -1,48 +1,35 @@
-# OKX 模拟盘诊断: 查真实持仓 + 打印下单返回的 code/sCode/sMsg (定位为什么订单没开上)
-import sys, os, json
+# OKX 诊断 v2 (只读): 账户模式 + 真实持仓 + XAU最大杠杆 + 订单历史
+import sys, os, json, requests
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient
 c = OkxClient(simulated=True)
 
-print("=== 1) 账户 ===")
-bal = c.get_balance()
-if bal.get("code") == "0":
-    d = bal["data"][0]
-    print("acctLv:", d.get("acctLv"), "| posMode:", d.get("posMode"), "| totalEq:", d.get("totalEq"))
-    for det in d.get("details", []):
-        if float(det.get("eq", 0) or 0) > 0:
-            print("   ", det.get("ccy"), "eq", det.get("eq"), "avail", det.get("availBal"))
+print("=== 1) 账户配置(acctLv/posMode) ===")
+print(json.dumps(c._get("/api/v5/account/config", None), ensure_ascii=False)[:400])
+
+print("=== 2) 真实持仓(全部) ===")
+p = c.get_positions()
+if p.get("code") == "0":
+    print("   条数:", len(p.get("data", [])))
+    for x in p["data"]:
+        print("   ", x.get("instId"), x.get("posSide"), "pos=", x.get("pos"), "avgPx=", x.get("avgPx"),
+              "lever=", x.get("lever"), "mgnMode=", x.get("mgnMode"), "upl=", x.get("upl"))
 else:
-    print("   balance err:", json.dumps(bal, ensure_ascii=False)[:300])
+    print("   err", json.dumps(p, ensure_ascii=False)[:300])
 
-print("=== 2) 当前真实持仓 ===")
-pos = c.get_positions()
-if pos.get("code") == "0":
-    if not pos.get("data"):
-        print("   （无持仓）")
-    for p in pos["data"]:
-        print("   ", p.get("instId"), p.get("posSide"), "pos=", p.get("pos"), "avgPx=", p.get("avgPx"), "upl=", p.get("upl"))
-else:
-    print("   positions err:", json.dumps(pos, ensure_ascii=False)[:300])
+print("=== 3) 合约规格/最大杠杆 ===")
+for inst in ["XAU-USDT-SWAP", "BTC-USDT-SWAP"]:
+    ir = requests.get("https://www.okx.com/api/v5/public/instruments",
+                      params={"instType": "SWAP", "instId": inst}, timeout=15).json()
+    d = (ir.get("data") or [{}])[0]
+    print(f"   {inst}: lever(max)={d.get('lever')} ctVal={d.get('ctVal')} minSz={d.get('minSz')} lotSz={d.get('lotSz')}")
 
-def try_order(inst, sz, ps, side):
-    print(f"\n-- {inst} 设杠杆100x --")
-    print("   ", json.dumps(c.set_leverage(inst, 100, "isolated", pos_side=ps), ensure_ascii=False)[:200])
-    r = c.place_order(inst, side, sz, td_mode="isolated", pos_side=ps)
-    print(f"-- {inst} 下单 sz={sz} 返回 --")
-    print("   raw:", json.dumps(r, ensure_ascii=False)[:600])
-    if r.get("code") == "0" and r.get("data"):
-        dd = r["data"][0]
-        print("   >>> ordId:", dd.get("ordId"), "| sCode:", dd.get("sCode"), "| sMsg:", dd.get("sMsg"))
-
-print("=== 3) 按引擎的方式真实试单 ===")
-try_order("XAU-USDT-SWAP", "120", "long", "buy")   # 与07:01那笔完全一致
-try_order("BTC-USDT-SWAP", "0.59", "long", "buy")
-
-print("\n=== 4) 试单后再查持仓 ===")
-pos2 = c.get_positions()
-if pos2.get("code") == "0":
-    if not pos2.get("data"):
-        print("   （仍无持仓 → 订单确实没成交）")
-    for p in pos2["data"]:
-        print("   ", p.get("instId"), p.get("posSide"), "pos=", p.get("pos"), "avgPx=", p.get("avgPx"))
+print("=== 4) 最近订单历史 ===")
+for inst in ["XAU-USDT-SWAP", "BTC-USDT-SWAP"]:
+    oh = c._get("/api/v5/trade/orders-history", {"instType": "SWAP", "instId": inst, "limit": "10"})
+    print(f"-- {inst} code={oh.get('code')} 条数={len(oh.get('data') or [])} --")
+    for o in (oh.get("data") or []):
+        import datetime
+        t = datetime.datetime.fromtimestamp(int(o.get("cTime", 0)) / 1000).strftime("%H:%M:%S")
+        print(f"   {t} side={o.get('side')} posSide={o.get('posSide')} sz={o.get('sz')} "
+              f"fillSz={o.get('fillSz')} avgPx={o.get('avgPx')} state={o.get('state')} ordType={o.get('ordType')}")
