@@ -1,5 +1,20 @@
 {
- "positions": [],
+ "positions": [
+  {
+   "inst": "BTC-USDT-SWAP",
+   "direction": "long",
+   "entry": 84193.6,
+   "sl": 84247.19571428571,
+   "tp": 85927.40857142859,
+   "size": 0.59,
+   "ratio": 1.0,
+   "risk_free": true,
+   "tp1_hit": false,
+   "leverage": 100,
+   "simulated": true,
+   "opened": 1790874074
+  }
+ ],
  "daily": {
   "date": "2026-10-02",
   "trades": 0
@@ -32,12 +47,22 @@
    "detail": "黄金 LONG +0.00U"
   }
  ],
- "pushed_signals": [],
+ "pushed_signals": [
+  "BTC-USDT-SWAP|short|84450",
+  "BTC-USDT-SWAP|long|83240",
+  "XAU-USDT-SWAP|long|4160",
+  "BTC-USDT-SWAP|long|83330"
+ ],
  "daily_report_date": "2026-10-01",
  "market_snapshot": [
   "· BTC: 上涨趋势 | 活跃FVG 84,458~84,859 | 最近截取 扫上84,298(1点)",
   "· 黄金: 上涨趋势 | 活跃FVG 4,176~4,180 | 最近截取 扫上4,180(2点)"
  ],
- "pushed_watch": [],
+ "pushed_watch": [
+  "WATCH|BTC-USDT-SWAP|down|83820",
+  "WATCH|XAU-USDT-SWAP|up|4180",
+  "WATCH|BTC-USDT-SWAP|up|83310",
+  "WATCH|XAU-USDT-SWAP|up|4160"
+ ],
  "fail_streak": 0
 }
