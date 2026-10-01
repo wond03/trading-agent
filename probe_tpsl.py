@@ -1,28 +1,34 @@
-# 一次性诊断: 验证 OKX 模拟盘能否给"持仓"挂上真实止盈止损(策略委托)
+# 诊断2: 逐项测试 持仓TP/SL 策略委托, 定位 TP 为何没进单
 import sys, os, json, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient
 c = OkxClient(simulated=True)
-BASE = os.path.dirname(os.path.abspath(__file__))
+inst = "BTC-USDT-SWAP"
 
-print("TICK_BTC=", c.get_tick("BTC-USDT-SWAP"), "TICK_XAU=", c.get_tick("XAU-USDT-SWAP"))
+def dump(tag):
+    d = c.get_algo_pending(inst_id=inst).get("data") or []
+    print(tag, json.dumps(d, ensure_ascii=False)[:900])
 
-def show(tag):
-    poss = c.get_positions().get("data") or []
-    print(tag, [(x.get("instId"), x.get("posSide"), x.get("pos"), "avg=" + str(x.get("avgPx")),
-                 "tp=" + str(x.get("tpTriggerPx")), "sl=" + str(x.get("slTriggerPx"))) for x in poss])
+def clean():
+    for a in (c.get_algo_pending(inst_id=inst).get("data") or []):
+        c.cancel_algo(inst, a["algoId"])
+    time.sleep(1)
 
-show("BEFORE_POS:")
+clean()
+print("== A: only SL ==")
+r = c.place_tpsl(inst, "long", sl=84527.6)
+print("resp:", json.dumps(r, ensure_ascii=False)[:300]); time.sleep(1.5); dump("PEND_SL:"); clean()
 
-st = json.load(open(os.path.join(BASE, "engine", "state.json")))
-for p in st.get("positions", []):
-    inst = p["inst"]; ps = "long" if p["direction"] == "long" else "short"
-    r = c.place_tpsl(inst, ps, td_mode="isolated", tp=p["tp"], sl=p["sl"], close_fraction="1")
-    print("PLACE_TPSL", inst, ps, "tp=", c.round_tick(inst, p["tp"]), "sl=", c.round_tick(inst, p["sl"]),
-          "->", json.dumps(r, ensure_ascii=False)[:400])
+print("== B: only TP ==")
+r = c.place_tpsl(inst, "long", tp=87747.8)
+print("resp:", json.dumps(r, ensure_ascii=False)[:300]); time.sleep(1.5); dump("PEND_TP:"); clean()
 
-time.sleep(2)
-show("AFTER_POS:")
-alg = c.get_algo_pending().get("data") or []
-print("ALGO_PENDING:", [(a.get("instId"), a.get("algoId"), a.get("tpTriggerPx"),
-                         a.get("slTriggerPx"), a.get("closeFraction"), a.get("state")) for a in alg])
+print("== C: TP+SL ==")
+r = c.place_tpsl(inst, "long", tp=87747.8, sl=84527.6)
+print("resp:", json.dumps(r, ensure_ascii=False)[:300]); time.sleep(1.5); dump("PEND_BOTH:")
+for a in (c.get_algo_pending(inst_id=inst).get("data") or []):
+    print("DETAIL:", json.dumps(c.get_algo(inst, a["algoId"]), ensure_ascii=False)[:900])
+
+print("== FINAL: keep TP+SL ==")
+clean()
+c.place_tpsl(inst, "long", tp=87747.8, sl=84527.6); time.sleep(1.5); dump("FINAL:")
