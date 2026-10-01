@@ -1,10 +1,10 @@
-# 诊断3: 明确打印 TP/SL 关键字段
-import sys, os, json, time
+# 诊断4: 找"同时保留 TP+SL"的写法
+import sys, os, json, time, requests
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient
 c = OkxClient(simulated=True)
 inst = "BTC-USDT-SWAP"
-F = ("algoId", "ordType", "side", "posSide", "closeFraction",
+F = ("algoId", "ordType", "side", "posSide", "sz", "closeFraction",
      "tpTriggerPx", "tpOrdPx", "slTriggerPx", "slOrdPx", "state")
 
 def show(tag):
@@ -16,9 +16,26 @@ def clean():
         c.cancel_algo(inst, a["algoId"])
     time.sleep(1)
 
+pos = (c.get_positions(inst_id=inst).get("data") or [{}])[0]
+sz = pos.get("pos")
+print("POS_SZ=", sz, "avg=", pos.get("avgPx"))
+
 clean()
-print("B: only TP")
-c.place_tpsl(inst, "long", tp=87747.8); time.sleep(1.5); show("TP_ONLY"); clean()
-print("C: TP+SL")
-c.place_tpsl(inst, "long", tp=87747.8, sl=84527.6); time.sleep(1.5); show("TP_SL")
-print("最终保留 TP+SL 已挂")
+print("T2: conditional + sz + tp + sl")
+print("resp:", json.dumps(c._post("/api/v5/trade/order-algo", {
+    "instId": inst, "tdMode": "isolated", "side": "sell", "posSide": "long",
+    "ordType": "conditional", "sz": str(sz),
+    "tpTriggerPx": "87747.8", "tpOrdPx": "-1", "slTriggerPx": "84527.6", "slOrdPx": "-1"}),
+    ensure_ascii=False)[:200]); time.sleep(1.5); show("T2"); clean()
+
+print("T3: oco + sz + tp + sl")
+print("resp:", json.dumps(c._post("/api/v5/trade/order-algo", {
+    "instId": inst, "tdMode": "isolated", "side": "sell", "posSide": "long",
+    "ordType": "oco", "sz": str(sz),
+    "tpTriggerPx": "87747.8", "tpOrdPx": "-1", "slTriggerPx": "84527.6", "slOrdPx": "-1"}),
+    ensure_ascii=False)[:200]); time.sleep(1.5); show("T3"); clean()
+
+print("T4: 两条独立 conditional (tp-only + sl-only)")
+c.place_tpsl(inst, "long", tp=87747.8); time.sleep(1)
+c.place_tpsl(inst, "long", sl=84527.6); time.sleep(1.5); show("T4")
+print("（保持 T4 的两条挂单）")
