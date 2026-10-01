@@ -1,1 +1,45 @@
-{"positions": [], "daily": {"date": "2026-10-02", "trades": 1, "by_profile": {"4H+1H": 1, "4H+15m": 0}}, "last_signal_bar": {}, "last_run_ts": 0, "run_count_today": 14, "history": [], "pushed_signals": [], "daily_report_date": "2026-10-01", "market_snapshot": ["· `4+1` BTC: 上涨趋势 | 活跃FVG 84,063~84,385 | 最近截取 扫上84,368(1点)", "· `4+15` BTC: 下跌趋势 | 活跃FVG 84,458~84,739 | 最近截取 扫下84,517(3点)", "· `4+1` 黄金: 上涨趋势 | 活跃FVG 4,167~4,177 | 最近截取 扫上4,167(1点)", "· `4+15` 黄金: 上涨趋势 | 活跃FVG 4,180~4,183 | 最近截取 扫下4,179(1点)"], "pushed_watch": [], "fail_streak": 0}
+{
+ "positions": [],
+ "daily": {
+  "date": "2026-10-02",
+  "trades": 2,
+  "by_profile": {
+   "4H+1H": 2,
+   "4H+15m": 0
+  }
+ },
+ "last_signal_bar": {},
+ "last_run_ts": 1790892395.092303,
+ "run_count_today": 15,
+ "history": [
+  {
+   "type": "signal",
+   "ts": 1790892395.9284823,
+   "profile": "4H+1H",
+   "grade": "B",
+   "detail": "BTC做多 · 进84,730 损84,560 标87,843 · RR1:18"
+  },
+  {
+   "type": "exit",
+   "ts": 1790892395.9285247,
+   "profile": "4H+1H",
+   "pnl": -1.0,
+   "detail": "[4+1] BTC LONG -1.00U"
+  }
+ ],
+ "pushed_signals": [
+  "4H+1H|BTC-USDT-SWAP|long|83170"
+ ],
+ "daily_report_date": "2026-10-01",
+ "market_snapshot": [
+  "· `4+1` BTC: 上涨趋势 | 活跃FVG 84,063~84,385 | 最近截取 扫上84,368(1点)",
+  "· `4+15` BTC: 下跌趋势 | 活跃FVG 84,458~84,739 | 最近截取 扫下84,517(3点)",
+  "· `4+1` 黄金: 上涨趋势 | 活跃FVG 4,167~4,177 | 最近截取 扫上4,167(1点)",
+  "· `4+15` 黄金: 上涨趋势 | 活跃FVG 4,180~4,183 | 最近截取 扫下4,179(1点)"
+ ],
+ "pushed_watch": [
+  "WATCH|4H+1H|XAU-USDT-SWAP|up|4180",
+  "WATCH|4H+15m|XAU-USDT-SWAP|up|4180"
+ ],
+ "fail_streak": 0
+}
