@@ -256,9 +256,10 @@ def run_once():
                 sl_use, liq_px = liquidation_sl(sig.entry, sig.direction)
                 line = format_signal(inst_id, sig, size, sl_use, liq_px)
                 if not DRY_RUN:
-                    client.set_leverage(inst_id, size["leverage"], sym_cfg.get("td_mode", "isolated"))
+                    _ps = "long" if sig.direction == "long" else "short"
+                    client.set_leverage(inst_id, size["leverage"], sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
                     side = "buy" if sig.direction == "long" else "sell"
-                    resp = client.place_order(inst_id, side, size["lots"], td_mode=sym_cfg.get("td_mode", "isolated"))
+                    resp = client.place_order(inst_id, side, size["lots"], td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
                     ok_txt = "✅ 已自动下单" if resp.get("code") == "0" else f"❌ 下单失败: {str(resp)[:80]}"
                     line = line.replace("> 模拟观察模式，未实际下单", f"> {ok_txt}")
                     if resp.get("code") == "0":
