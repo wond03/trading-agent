@@ -41,7 +41,7 @@ class EntryEngine:
             return None
 
         # ② 找截取 (规则C2: 无截取不开单; B5: 1H需双点)
-        recent_sweeps = [s for s in le.sweeps if 0 <= i - s[0] <= 20]
+        recent_sweeps = [s for s in le.sweeps if 0 <= i - s[0] <= C.SWEEP_WINDOW]
         valid_sweeps = []
         for s in recent_sweeps:
             is_double = (s[3] >= 2) if isinstance(s[3], int) else False
@@ -175,7 +175,7 @@ class EntryEngine:
         用途: 提前提示"机会在酝酿", 转势一旦出现即升级为A级信号"""
         self.__init_watch()
         i = bar_i if bar_i is not None else len(candles) - 1
-        recent = [s for s in le.sweeps if 0 <= i - s[0] <= 20]
+        recent = [s for s in le.sweeps if 0 <= i - s[0] <= C.SWEEP_WINDOW]
         same = [s for s in recent if (htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up")]
         if not same:
             return None
