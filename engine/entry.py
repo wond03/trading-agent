@@ -66,12 +66,23 @@ class EntryEngine:
                 turn_dir = "up"; turn_bar = e[0]; break
             if htf_trend == "down" and e[1] in ("CHoCH_down", "BOS_down"):
                 turn_dir = "down"; turn_bar = e[0]; break
+        sweep_price = sweep[2]                     # 被扫的极端价(提前定义, 供弱转势判断)
         steps["turn"] = turn_dir
+        weak_turn = False
         if not turn_dir:
-            return None
+            # 弱转势(课程语义: 扫完流动性能"站回来"本身即转势证据)
+            # 顺势方向: 扫下方流动性后连续2根收盘高于截取极值 / 扫上方后连续2根收盘低于截取极值
+            if len(candles) >= 3:
+                r2 = candles[i-1:i+1]
+                if htf_trend == "up":
+                    weak_turn = all(c.close > sweep_price for c in r2)
+                else:
+                    weak_turn = all(c.close < sweep_price for c in r2)
+            if not weak_turn:
+                return None
+            turn_dir = htf_trend   # 弱转势方向 = 趋势方向
 
         # ④ 等回踩 (规则C6: 回踩到 FVG 或 斐波0.382-0.618 区间)
-        sweep_price = sweep[2]                     # 被扫的极端价
         post_high = max(c.high for c in candles[sweep[0]:i+1])
         post_low = min(c.low for c in candles[sweep[0]:i+1])
         rng = post_high - post_low
@@ -88,19 +99,32 @@ class EntryEngine:
         if not (in_retrace or in_fvg):
             return None
 
-        # ⑤ 触发确认 (规则C13: 回踩中拐头/再截取/出量 任一即触发)
+        # ⑤ 触发确认 (规则C13: 回踩中拐头/拒绝/放量 任一即触发)
         bar = candles[i]
+        rng_b = bar.high - bar.low
+        lower_wick = min(bar.open, bar.close) - bar.low
+        upper_wick = bar.high - max(bar.open, bar.close)
         trigger = None
+        strong = False   # 强触发直接进A级候选; 弱触发仅B级
         if turn_dir == "up":
-            if bar.close > bar.open: trigger = "回踩收阳"
-            elif bar.low < candles[i-1].low and bar.close > candles[i-1].close: trigger = "下刺回收(猎取)"
+            if bar.close > bar.open:
+                trigger, strong = "回踩收阳", True
+            elif bar.low < candles[i-1].low and bar.close > candles[i-1].close:
+                trigger, strong = "下刺回收", True
+            elif rng_b > 0 and lower_wick / rng_b >= 0.5:
+                trigger = "下影拒绝"          # 弱触发(长下影=拒绝下跌)
         else:
-            if bar.close < bar.open: trigger = "回踩收阴"
-            elif bar.high > candles[i-1].high and bar.close < candles[i-1].close: trigger = "上刺回收(猎取)"
+            if bar.close < bar.open:
+                trigger, strong = "回踩收阴", True
+            elif bar.high > candles[i-1].high and bar.close < candles[i-1].close:
+                trigger, strong = "上刺回收", True
+            elif rng_b > 0 and upper_wick / rng_b >= 0.5:
+                trigger = "上影拒绝"          # 弱触发
         # 出量确认(规则C17)
         vols = [c.vol for c in candles[-21:-1]]
         if sum(vols) > 0 and bar.vol > (sum(vols)/len(vols)) * C.VOLUME_SPIKE_MULT:
             trigger = trigger or "放量触发"
+            strong = True
         steps["trigger"] = trigger
         if not trigger:
             return None
@@ -121,7 +145,7 @@ class EntryEngine:
             if rr < C.RR_MIN_GROWTH:
                 return None
             conf = "high" if in_fvg and in_retrace else "normal"
-            grade = "A" if (sweep_pts >= 2 and in_fvg) else "B"
+            grade = "A" if (sweep_pts >= 2 and in_fvg and not weak_turn and strong) else "B"
             return EntrySignal("long", px, sl, tp,
                                f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
         else:
@@ -135,7 +159,7 @@ class EntryEngine:
             if rr < C.RR_MIN_GROWTH:
                 return None
             conf = "high" if in_fvg and in_retrace else "normal"
-            grade = "A" if (sweep_pts >= 2 and in_fvg) else "B"
+            grade = "A" if (sweep_pts >= 2 and in_fvg and not weak_turn and strong) else "B"
             return EntrySignal("short", px, sl, tp,
                                f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
 
