@@ -5,8 +5,8 @@
   "trades": 0
  },
  "last_signal_bar": {},
- "last_run_ts": 1790865034.9329956,
- "run_count_today": 46,
+ "last_run_ts": 1790866839.661803,
+ "run_count_today": 47,
  "history": [
   {
    "type": "signal",
@@ -15,12 +15,13 @@
   }
  ],
  "pushed_signals": [
-  "BTC-USDT-SWAP|short|84450"
+  "BTC-USDT-SWAP|short|84450",
+  "BTC-USDT-SWAP|long|83240"
  ],
  "daily_report_date": "2026-10-01",
  "market_snapshot": [
-  "· BTC: 上涨趋势 | 活跃FVG 83,710~83,900 | 最近截取 扫上83,815(1点)",
-  "· 黄金: 上涨趋势 | 活跃FVG 4,171~4,179 | 最近截取 扫上4,167(1点)"
+  "· BTC: 上涨趋势 | 活跃FVG 83,710~83,900 | 最近截取 扫上84,066(1点)",
+  "· 黄金: 上涨趋势 | 活跃FVG 4,167~4,177 | 最近截取 扫上4,167(1点)"
  ],
  "pushed_watch": [
   "WATCH|BTC-USDT-SWAP|down|83820",
