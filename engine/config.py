@@ -18,20 +18,20 @@ MARGIN_PER_TRADE = 5.0      # 每单保证金 5 USDT
 LEVERAGE_FIXED = 100        # 固定 100 倍
 LIQ_BUFFER_PCT = 0.003      # 爆仓线前 0.3% 强平(等效止损, 避免爆仓罚金)
 MMR_ESTIMATE = 0.005        # 维持保证金率估算(100倍档约0.4%~0.5%)
-BASE_TF = "15m"       # 主分析周期 (2026-10-01切换: 课程标准组合 15m执行↔4H方向)
+BASE_TF = "1H"        # 主分析周期 (2026-10-02定: 15m经回测证明负期望, 回归1H)
 HTF = "4H"            # 高一级周期 (只推一级, 规则A6)
 TIMEFRAME_SECONDS = {"1H": 3600, "4H": 14400, "15m": 900, "5m": 300}
 
 # ---------- 结构引擎 (模块A) ----------
-SWING_LEFT = 3        # swing确认窗口(15m下=45分钟; 1H下2根=2小时) [待标定]
-SWING_RIGHT = 3
+SWING_LEFT = 2        # swing确认窗口(1H下=2小时) [待标定]
+SWING_RIGHT = 2
 CONSOLIDATION_ATR = 1.5   # [待标定] swing高低点间距 < ATR*此值 → 视为盘整区, 区内突破屏蔽信号(规则A4)
 HTF_TREND_WEIGHT = True   # 多周期共振: 基础周期信号必须与HTF趋势同向(规则A8), 否则降级观察
 
 # ---------- 流动性/FVG (模块B) ----------
 FVG_MIN_ATR = 0.3         # [待标定] FVG最小尺寸 = ATR14 * 此值, 过滤噪声缺口(规则B1)
 IFVG_CONFIRM_BARS = (3, 8)  # IFVG牛熊转换: 下跌FVG出现后3~8根内回填(规则B4), 超过8根视为失效
-SWEEP_WINDOW = 40     # 截取有效期(根): 15m下=10小时; 原1H下20根=20小时
+SWEEP_WINDOW = 20     # 截取有效期(根): 1H下=20小时
 SWEEP_DOUBLE_POINT_H1 = False  # 放宽(2026-10-01): 允许单点截取进入候选(原True要求双点, 实测信号过稀15天/个); 单点会标注置信度
 SIGNAL_GRADING = True          # 分级信号: A级(双点+回踩FVG,完整五步) / B级(单点或仅回踩斐波)
 TRUE_BREAK_BY_CLOSE = True    # 实体收过=真突破, 影线刺破收回=截取扫损(规则A11/B11 ★核心二元判定)
