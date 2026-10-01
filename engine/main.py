@@ -241,6 +241,11 @@ def run_once():
             if fp in state.get("pushed_signals", []):
                 print(f"[跳过重复信号] {fp}")
                 sig = None
+        # 该品种已有持仓 → 不重复开仓(防同波行情过度交易)
+        _has_pos = any(p["inst"] == inst_id for p in state.get("positions", []))
+        if sig and _has_pos:
+            print(f"[跳过] {inst_id} 已有持仓, 不重复开仓")
+            sig = None
         if sig:
             ok, detail = risk.check_gates(sig)
             if ok and halt_new:
