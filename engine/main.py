@@ -221,6 +221,23 @@ def get_htf_trend(client, inst_id, candles_base):
         print(f"[HTF] 4H获取失败({type(e).__name__}), 回退基础周期斜率")
     return ("up" if candles_base[-1].close > candles_base[-50].close else "down"), "base(回退)"
 
+def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
+    """设置杠杆并返回实际生效值。各品种上限不同(XAU实测最高50), 100被拒(59102)时逐级下调。"""
+    for lev in (desired, 50, 20, 10, 5, 2):
+        if lev > desired:
+            continue
+        try:
+            r = client.set_leverage(inst_id, lev, td_mode, pos_side=pos_side)
+        except Exception as e:
+            print(f"[杠杆] {inst_id} {lev}x 异常 {type(e).__name__}")
+            continue
+        if r.get("code") == "0":
+            if lev != desired:
+                print(f"[杠杆] {inst_id} {desired}x被拒, 实际使用 {lev}x")
+            return lev
+    print(f"[杠杆] {inst_id} 各档位均失败, 兜底10x")
+    return 10
+
 def run_once():
     state = load_state()
     print(f"[暗夜猎手 v3] 方案={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=双方案并行+开仓当根不判出场")
@@ -302,43 +319,52 @@ def run_once():
                         reports.append(f"🛑 **`{plabel}` 连亏保护** 最近3笔全亏，跳过开仓（{inst_id}）")
                         ok = False
                     if ok:
-                        size = size_fixed_margin(px, inst_id)
-                        sl_use, liq_px = liquidation_sl(sig.entry, sig.direction)
+                        _ps = "long" if sig.direction == "long" else "short"
+                        _td = sym_cfg.get("td_mode", "isolated")
+                        # 杠杆: 各品种上限不同(XAU实测最高50), 写死100会被OKX拒(59102)
+                        used_lev = resolve_leverage(client, inst_id, C.LEVERAGE_FIXED, _td, _ps) if not DRY_RUN else C.LEVERAGE_FIXED
+                        size = size_fixed_margin(px, inst_id, leverage=used_lev)
+                        sl_use, liq_px = liquidation_sl(sig.entry, sig.direction, leverage=used_lev)
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
+                        _opened = False
                         if not DRY_RUN:
-                            _ps = "long" if sig.direction == "long" else "short"
-                            client.set_leverage(inst_id, size["leverage"], sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
                             side = "buy" if sig.direction == "long" else "sell"
-                            resp = client.place_order(inst_id, side, size["lots"],
-                                                      td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
-                            ok_txt = "✅ 已自动下单" if resp.get("code") == "0" else f"❌ 下单失败: {str(resp)[:80]}"
-                            line = line.replace("> 模拟观察模式，未实际下单", f"> {ok_txt}")
-                            if resp.get("code") == "0":
+                            resp = client.place_order(inst_id, side, size["lots"], td_mode=_td, pos_side=_ps)
+                            dd = (resp.get("data") or [{}])[0]
+                            print(f"[下单] {inst_id} {side} {size['lots']} lev={used_lev} -> {json.dumps(resp, ensure_ascii=False)[:280]}")
+                            # ★核心: 必须同时校验 code 与 订单级 sCode, 否则会把被拒单记成持仓(假持仓bug)
+                            if resp.get("code") == "0" and dd.get("sCode") == "0":
+                                line += f"\n\n> ✅ 已开仓 {size['lots']}张 · 订单 {dd.get('ordId')}"
                                 state["positions"].append({"inst": inst_id, "direction": sig.direction,
                                                            "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
                                                            "size": size["lots"], "ratio": 1.0,
                                                            "risk_free": False, "tp1_hit": False,
-                                                           "leverage": size["leverage"], "profile": pname,
+                                                           "leverage": used_lev, "profile": pname,
                                                            "run_id": state["last_run_ts"],
                                                            "opened": int(time.time())})
                                 state["daily"]["trades"] += 1
                                 state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
+                                _opened = True
+                            else:
+                                line += f"\n\n> ❌ 开仓失败 [{dd.get('sCode') or resp.get('code')}] {dd.get('sMsg') or resp.get('msg')}"
                         else:
                             # DRY_RUN: 建立虚拟持仓 → 观察期自动统计模拟盈亏
                             state["positions"].append({"inst": inst_id, "direction": sig.direction,
                                                        "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
                                                        "size": size["lots"], "ratio": 1.0,
                                                        "risk_free": False, "tp1_hit": False,
-                                                       "leverage": size["leverage"], "profile": pname,
+                                                       "leverage": used_lev, "profile": pname,
                                                        "run_id": state["last_run_ts"],
                                                        "simulated": True, "opened": int(time.time())})
+                            _opened = True
                         reports.append(line)
-                        _nmx = "BTC" if "BTC" in inst_id else "黄金"
-                        _sdx = "做多" if sig.direction == "long" else "做空"
-                        _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
-                        state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
-                            "profile": pname, "grade": getattr(sig, "grade", "A"),
-                            "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
+                        if _opened:
+                            _nmx = "BTC" if "BTC" in inst_id else "黄金"
+                            _sdx = "做多" if sig.direction == "long" else "做空"
+                            _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
+                            state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
+                                "profile": pname, "grade": getattr(sig, "grade", "A"),
+                                "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
                     else:
                         reports.append(f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
                     # 记录指纹(去重), 保留最近60条
