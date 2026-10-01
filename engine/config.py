@@ -22,6 +22,17 @@ BASE_TF = "1H"        # 主分析周期 (2026-10-02定: 15m经回测证明负期
 HTF = "4H"            # 高一级周期 (只推一级, 规则A6)
 TIMEFRAME_SECONDS = {"1H": 3600, "4H": 14400, "15m": 900, "5m": 300}
 
+# ---------- 双方案并行 (2026-10-02 用户指定: 4+1 / 4+15) ----------
+# 每个方案 = 4H 定趋势 + 各自入场周期; 两套并行运行, 信号/持仓/战绩分别标注
+# [待标定] 15m 的 swing/sweep 窗口先用与 1H 相同的"根数"(结构参数, 非固定时间), 上模拟盘后用数据校准
+STRATEGY_PROFILES = {
+    "4H+1H":  {"label": "4+1",  "base_tf": "1H",  "htf": "4H",
+               "swing_left": 2, "swing_right": 2, "sweep_window": 20},
+    "4H+15m": {"label": "4+15", "base_tf": "15m", "htf": "4H",
+               "swing_left": 2, "swing_right": 2, "sweep_window": 20},
+}
+# 日内限单: 每方案独立计数(各 2 单/日, 规则F2), 总量上限 = 方案数 × DAILY_MAX_TRADES
+
 # ---------- 结构引擎 (模块A) ----------
 SWING_LEFT = 2        # swing确认窗口(1H下=2小时) [待标定]
 SWING_RIGHT = 2
