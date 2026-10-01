@@ -68,7 +68,7 @@ TRAIL_SL_ON_BOS = True        # 突破结构位后SL移到被突破位下方(规
 # ---------- 风控 (模块F, 直接硬编码) ----------
 RISK_PER_TRADE = 0.01         # 单笔风险 = 总仓1% (规则E1/F1)
 MAX_LEVERAGE_CAP = 20         # 个人杠杆上限(规则E4: 老师最高20倍)
-DAILY_MAX_TRADES = 2          # 日内≤2单(规则F2)
+DAILY_MAX_TRADES = 999        # 2026-10-02 用户决定: 暂不设日内限单, 先攒样本数据
 SL_AT_STRUCTURE = True        # 止损挂结构位外侧+留插针空间(规则F3)
 SL_BUFFER_ATR = 0.2           # [待标定] 止损在结构位外再加ATR*此值的插针缓冲
 REQUIRE_ALL_CONDITIONS = True # 五条件严格AND缺一不做(规则F1)
