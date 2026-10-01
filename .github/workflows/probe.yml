@@ -11,7 +11,7 @@ jobs:
           python-version: '3.12'
       - run: pip install requests
       - name: OKX链路自检
-        run: python probe_okx.py
+        run: python probe_tpsl.py
         env:
           OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
