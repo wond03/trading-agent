@@ -28,10 +28,13 @@ def push(text):
         print(f"[推送失败] {e}")
 
 def load_state():
-    try:
-        return json.load(open(STATE_FILE))
-    except Exception:
-        return {"positions": [], "daily": {"date": "", "trades": 0}, "last_signal_bar": {}}
+    """读取状态: 主文件损坏时自动回退备份(错误自愈)"""
+    for path in (STATE_FILE, STATE_FILE + ".bak"):
+        try:
+            return json.load(open(path))
+        except Exception:
+            continue
+    return {"positions": [], "daily": {"date": "", "trades": 0}, "last_signal_bar": {}}
 
 def fmt_price(x):
     return f"{x:,.0f}" if x >= 100 else f"{x:,.2f}"
@@ -133,17 +136,38 @@ def build_daily_report(state, now_bj):
     return "\n".join(lines)
 
 def save_state(s):
+    """保存前先备份旧状态(错误自愈)"""
+    try:
+        if os.path.exists(STATE_FILE):
+            import shutil
+            shutil.copy(STATE_FILE, STATE_FILE + ".bak")
+    except Exception:
+        pass
     json.dump(s, open(STATE_FILE, "w"), ensure_ascii=False, indent=1)
 
+PAIR_MAP = {"BTC-USDT-SWAP": "BTC_USDT", "XAU-USDT-SWAP": "PAXG_USDT"}
+
+def _fetch_gate(inst_id, limit):
+    import requests
+    pair = PAIR_MAP.get(inst_id, "BTC_USDT")
+    r = requests.get("https://api.gateio.ws/api/v4/spot/candlesticks",
+                     params={"currency_pair": pair, "interval": "1h", "limit": limit}, timeout=15)
+    return [Candle(int(d[0]), float(d[5]), float(d[3]), float(d[4]), float(d[2]), float(d[1])) for d in r.json()]
+
 def fetch_candles(client, inst_id, limit=300):
-    """数据源路由: 正式=OKX; 本地测试=Gate.io(沙盒可达)"""
+    """数据源路由 + 故障自愈: OKX主力 → 失败自动切换 Gate.io 备用"""
     if os.environ.get("DATA_SOURCE") == "gate":
-        import requests
-        pair = {"BTC-USDT-SWAP": "BTC_USDT", "XAU-USDT-SWAP": "PAXG_USDT"}.get(inst_id, "BTC_USDT")  # 本地测试:XAU用PAXG代理
-        r = requests.get("https://api.gateio.ws/api/v4/spot/candlesticks",
-                         params={"currency_pair": pair, "interval": "1h", "limit": limit}, timeout=15)
-        return [Candle(int(d[0]), float(d[5]), float(d[3]), float(d[4]), float(d[2]), float(d[1])) for d in r.json()]
-    return client.get_candles(inst_id, C.BASE_TF, limit)
+        return _fetch_gate(inst_id, limit)
+    try:
+        return client.get_candles(inst_id, C.BASE_TF, limit)
+    except Exception as e:
+        print(f"[自愈] OKX行情失败({type(e).__name__}), 切换备用源Gate.io...")
+        try:
+            k = _fetch_gate(inst_id, limit)
+            print(f"[自愈] 备用源成功: {len(k)}根K线")
+            return k
+        except Exception as e2:
+            raise RuntimeError(f"主源失败({e}) 且备用源失败({e2})")
 
 def run_once():
     state = load_state()
@@ -329,7 +353,24 @@ def run_once():
 
     state["history"] = state.get("history", [])[-100:]   # 历史保留最近100条
     state["market_snapshot"] = market_notes               # 供日报展示
+    state["fail_streak"] = 0                              # 运行成功, 重置失败计数
     save_state(state)
 
 if __name__ == "__main__":
-    run_once()
+    try:
+        run_once()
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        try:
+            st = load_state()
+            st["fail_streak"] = st.get("fail_streak", 0) + 1
+            save_state(st)
+            n = st["fail_streak"]
+            if n >= 3:
+                push(f"🔴 **暗夜猎手 · 连续{n}次运行失败**\n\n```\n{str(e)[:200]}\n```\n请检查 Actions 日志")
+            else:
+                push(f"⚠️ **暗夜猎手 · 运行异常（第{n}次）**\n\n```\n{str(e)[:200]}\n```")
+        except Exception as e2:
+            print(f"[告警也失败了] {e2}")
+        raise
