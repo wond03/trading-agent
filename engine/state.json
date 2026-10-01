@@ -1,27 +1,49 @@
 {
- "positions": [],
+ "positions": [
+  {
+   "inst": "XAU-USDT-SWAP",
+   "direction": "long",
+   "entry": 4173.7,
+   "sl": 4165.3526,
+   "tp": 4209.282857142857,
+   "size": 120,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 100,
+   "simulated": true,
+   "opened": 1790870478
+  }
+ ],
  "daily": {
-  "date": "2026-10-01",
+  "date": "2026-10-02",
   "trades": 0
  },
  "last_signal_bar": {},
- "last_run_ts": 1790868677.1876125,
- "run_count_today": 48,
+ "last_run_ts": 1790870477.3334398,
+ "run_count_today": 1,
  "history": [
   {
    "type": "signal",
    "ts": 1790712884.5952942,
    "detail": "BTC-USDT-SWAP SHORT 进83542 损84451 标81724 RR1:2.0"
+  },
+  {
+   "type": "signal",
+   "ts": 1790870478.6266835,
+   "grade": "B",
+   "detail": "黄金做多 · 进4,174 损4,165 标4,209 · RR1:4"
   }
  ],
  "pushed_signals": [
   "BTC-USDT-SWAP|short|84450",
-  "BTC-USDT-SWAP|long|83240"
+  "BTC-USDT-SWAP|long|83240",
+  "XAU-USDT-SWAP|long|4160"
  ],
  "daily_report_date": "2026-10-01",
  "market_snapshot": [
-  "· BTC: 上涨趋势 | 活跃FVG 83,710~83,900 | 最近截取 扫上84,066(1点)",
-  "· 黄金: 上涨趋势 | 活跃FVG 4,172~4,185 | 最近截取 扫上4,167(1点)"
+  "· BTC: 上涨趋势 | 活跃FVG 83,797~84,100 | 最近截取 扫上83,863(1点)",
+  "· 黄金: 下跌趋势 | 活跃FVG 4,164~4,172 | 最近截取 扫下4,157(2点)"
  ],
  "pushed_watch": [
   "WATCH|BTC-USDT-SWAP|down|83820",
