@@ -80,25 +80,25 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None, prof_label=""):
     sl_pct = abs(sl - sig.entry) / sig.entry * 100
     tp_pct = abs(sig.tp - sig.entry) / sig.entry * 100
     rr = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl), 1e-9)
-    if sig.direction == "long":
-        sl_txt, tp_txt = f"跌{sl_pct:.1f}%即离场", f"涨{tp_pct:.1f}%止盈"
-    else:
-        sl_txt, tp_txt = f"涨{sl_pct:.1f}%即离场", f"跌{tp_pct:.1f}%止盈"
+    _pct_sl = f"{'−' if sig.direction == 'long' else '+'}{sl_pct:.1f}%"
+    _pct_tp = f"{'+' if sig.direction == 'long' else '−'}{tp_pct:.1f}%"
     _g = getattr(sig, "grade", "A")
     _emoji = "🚨" if _g == "A" else "📣"
-    tag = f"`{prof_label}` · " if prof_label else ""
-    msg = (f"{_emoji} **{tag}{_g}级信号 · {name} {side}**\n\n"
-           f"**进场** {fmt_price(sig.entry)}\n"
-           f"**止损** {fmt_price(sl)}  ({sl_txt})")
+    _title = " · ".join([name, side] + ([prof_label] if prof_label else []))
+    L = [f"{_emoji} **{_g}级信号 · {_title}**",
+         "───────────────",
+         f"**进场** {fmt_price(sig.entry)}",
+         f"**止损** {fmt_price(sl)}（{_pct_sl}）",
+         f"**目标** {fmt_price(sig.tp)}（{_pct_tp}）",
+         f"**盈亏比** 1 : {rr:.1f}"]
     if liq:
-        msg += f"\n**爆仓价** {fmt_price(liq)}  (止损在其前0.3%强平)"
-    msg += (f"\n**目标** {fmt_price(sig.tp)}  ({tp_txt})\n"
-            f"**盈亏比** 1 : {rr:.1f}\n\n"
-            f"**依据** {simplify_reason(sig.reason)}\n"
-            f"**下单** {size['lots']} 张 ≈ {size['notional']:.0f}U 名义  保证金{size['margin']:.1f}U · {size['leverage']}倍")
+        L.append(f"**爆仓价** {fmt_price(liq)}")
+    L += ["───────────────",
+          f"**依据** {simplify_reason(sig.reason)}",
+          f"**下单** {size['lots']}张 · {size['notional']:.0f}U名义 · 保证金{size['margin']:.1f}U · {size['leverage']}倍"]
     if DRY_RUN:
-        msg += "\n\n> 模拟观察模式，未实际下单"
-    return msg
+        L += ["", "> 模拟观察，未实际下单"]
+    return "\n".join(L)
 
 def build_daily_report(state, now_bj):
     """每日日报 (北京时间早8点后首次运行推送)"""
@@ -384,10 +384,13 @@ def run_once():
                             ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
                             sign = 1 if p["direction"] == "long" else -1
                             pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
-                            tag = "(模拟)" if p.get("simulated") else ""
-                            reports.append(f"🏁 **`{plabel}` 出场{tag} · {_nm} {_sd}**\n**原因** {act[1]}\n"
-                                           f"**进场** {fmt_price(p['entry'])} → **出场** {fmt_price(exit_px)}\n"
-                                           f"**盈亏** {pnl:+.2f}U ({pnl / C.MARGIN_PER_TRADE * 100:+.0f}%保证金)")
+                            _ico = "✅" if pnl > 1e-9 else ("➖" if pnl > -1e-9 else "❌")
+                            _sim = "（模拟）" if p.get("simulated") else ""
+                            _t = " · ".join(x for x in [_nm, _sd, plabel] if x) + _sim
+                            reports.append(f"{_ico} **已平仓 · {_t}**\n"
+                                           f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}\n"
+                                           f"**盈亏** {pnl:+.2f}U（{pnl / C.MARGIN_PER_TRADE * 100:+.0f}%）\n"
+                                           f"**原因** {act[1]}")
                             state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
                                 "profile": pname, "pnl": round(pnl, 2),
                                 "detail": f"[{plabel}] {_nm} {p['direction'].upper()} {pnl:+.2f}U"})
@@ -407,11 +410,11 @@ def run_once():
                             p["size"] = round(p["size"] - cut, 6)
                             p["ratio"] = pos.size
                             p["tp1_hit"] = True
-                            reports.append(f"`{plabel}` {inst_id} {act[1]} 已平{cut}")
+                            reports.append(f"➗ **{plabel} · {inst_id}** {act[1]}")
                         elif act[0] == "MOVE_SL":
                             p["sl"] = pos.sl
                             p["risk_free"] = pos.risk_free
-                            reports.append(f"`{plabel}` {inst_id} {act[1]}")
+                            reports.append(f"🛡️ **{plabel} · {inst_id}** {act[1]}")
                     if not exited:
                         # 状态写回(修复Bug2: 保本/部分止盈持久化)
                         p["sl"] = pos.sl
