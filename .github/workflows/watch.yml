@@ -5,6 +5,9 @@ on:
   workflow_dispatch: {}       # cron-job.org 通过 API 触发此入口
 permissions:
   contents: write             # 允许提交 state.json (可靠持久化)
+concurrency:
+  group: nighthunter          # 串行执行: 防止高频触发时两轮同时下单(重复开仓)
+  cancel-in-progress: false
 jobs:
   watch:
     runs-on: ubuntu-latest
@@ -22,7 +25,7 @@ jobs:
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           DRY_RUN: "0"          # 真实模拟盘交易
-          CAPITAL_USD: "100000" # 模拟盘账户资金(用于仓位上限)
+          CAPITAL_USD: "100000" # 模拟盘账户资金
         run: python engine/main.py
       - name: 状态持久化(提交到仓库)
         run: |
