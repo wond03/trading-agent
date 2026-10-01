@@ -54,21 +54,27 @@ class OkxClient:
         return [Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])) for x in rows]
 
     # ---------- 杠杆设置 (100倍必须显式设置) ----------
-    def set_leverage(self, inst_id, lever, mgn_mode="isolated"):
-        """设置杠杆: lever=100, mgn_mode=isolated(逐仓, 100倍必配)"""
-        return self._post("/api/v5/account/set-leverage",
-                          {"instId": inst_id, "lever": str(lever), "mgnMode": mgn_mode})
+    def set_leverage(self, inst_id, lever, mgn_mode="isolated", pos_side=None):
+        """设置杠杆: lever=100, mgn_mode=isolated(逐仓, 100倍必配)
+        双向持仓模式下需指定 pos_side(long/short)"""
+        body = {"instId": inst_id, "lever": str(lever), "mgnMode": mgn_mode}
+        if pos_side:
+            body["posSide"] = pos_side
+        return self._post("/api/v5/account/set-leverage", body)
 
     # ---------- 模拟盘下单 ----------
-    def place_order(self, inst_id, side, sz, td_mode="cross", ord_type="market"):
-        """side: buy/sell; sz: 数量(张/币); 市价单
-        策略开多做多(buy+long), 平多(sell+long); 做空需开空仓模式, 这里用净持仓模式简化"""
+    def place_order(self, inst_id, side, sz, td_mode="isolated", ord_type="market", pos_side=None):
+        """side: buy/sell; pos_side: long/short(双向持仓模式必须指定)
+        开多: side=buy+pos_side=long | 开空: side=sell+pos_side=short
+        平多: side=sell+pos_side=long | 平空: side=buy+pos_side=short"""
         body = {"instId": inst_id, "tdMode": td_mode, "side": side, "ordType": ord_type, "sz": str(sz)}
+        if pos_side:
+            body["posSide"] = pos_side
         return self._post("/api/v5/trade/order", body)
 
-    def close_position(self, inst_id, side, sz, td_mode="cross"):
-        """平仓: side 与持仓方向相反 (持多->sell)"""
-        return self.place_order(inst_id, side, sz, td_mode, ord_type="market")
+    def close_position(self, inst_id, side, sz, td_mode="isolated", pos_side=None):
+        """平仓: side 与持仓方向相反 (持多->sell, pos_side仍为long)"""
+        return self.place_order(inst_id, side, sz, td_mode, ord_type="market", pos_side=pos_side)
 
     def get_positions(self, inst_id=None):
         """查持仓(签名接口)"""
