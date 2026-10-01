@@ -319,6 +319,7 @@ def run_once():
                                                            "size": size["lots"], "ratio": 1.0,
                                                            "risk_free": False, "tp1_hit": False,
                                                            "leverage": size["leverage"], "profile": pname,
+                                                           "run_id": state["last_run_ts"],
                                                            "opened": int(time.time())})
                                 state["daily"]["trades"] += 1
                                 state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
@@ -329,6 +330,7 @@ def run_once():
                                                        "size": size["lots"], "ratio": 1.0,
                                                        "risk_free": False, "tp1_hit": False,
                                                        "leverage": size["leverage"], "profile": pname,
+                                                       "run_id": state["last_run_ts"],
                                                        "simulated": True, "opened": int(time.time())})
                         reports.append(line)
                         _nmx = "BTC" if "BTC" in inst_id else "黄金"
@@ -364,6 +366,7 @@ def run_once():
                         continue
                     # 本轮新建的仓位: 当根K线不做出场判断(修复"开仓即被当根影线打损"顽疾)
                     if p.get("run_id") == state.get("last_run_ts"):
+                        print(f"[新仓位保护] {inst_id} 本轮新建, 跳过出场判断(下轮起管理)")
                         continue
                     pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
                                    size=p.get("ratio", 1.0), opened_bar=0)
