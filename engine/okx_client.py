@@ -82,6 +82,16 @@ class OkxClient:
         q = f"?instId={inst_id}" if inst_id else ""
         return self._get(path, {"instId": inst_id} if inst_id else None)
 
+    # ---------- 订单状态 / 撤单 (确认"是否真成交"用) ----------
+    def get_order(self, inst_id, ord_id):
+        return self._get("/api/v5/trade/order", {"instId": inst_id, "ordId": ord_id})
+
+    def cancel_order(self, inst_id, ord_id):
+        return self._post("/api/v5/trade/cancel-order", {"instId": inst_id, "ordId": ord_id})
+
+    def get_pending_orders(self, inst_type="SWAP"):
+        return self._get("/api/v5/trade/orders-pending", {"instType": inst_type})
+
     def get_balance(self):
         return self._get("/api/v5/account/balance", None)
 
