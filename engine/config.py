@@ -6,7 +6,7 @@
 # ---------- 品种与周期 ----------
 SYMBOLS = {
     "BTC-USDT-SWAP": {"enabled": True, "modules": ["structure", "liquidity", "entry", "funding"], "td_mode": "isolated"},
-    "XAU-USDT-SWAP": {"enabled": True, "modules": ["structure", "liquidity", "entry"], "td_mode": "isolated"},  # 黄金合约(云端实测存在,100倍)
+    "XAU-USDT-SWAP": {"enabled": False, "modules": ["structure", "liquidity", "entry"], "td_mode": "isolated"},  # 2026-10-02暂停: OKX演示盘XAU流动性极差(市价单偏离~1%或不成交), 数据不可用; 换低费率实盘平台后再开
 }
 # 合约规格(2026-09-30 云端实测 OKX /public/instruments)
 INST_SPECS = {
