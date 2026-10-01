@@ -346,7 +346,7 @@ def run_once():
                     state["pushed_signals"] = state["pushed_signals"][-60:]
                 else:
                     # ---- B级机会观察(埋伏提示: 截取+回踩到位, 尚未转势) ----
-                    w = ee.evaluate_watch(candles, se, le, htf, bar_i=len(candles) - 1)
+                    w = ee.evaluate_watch(candles, se, le, htf, bar_i=len(candles) - 1) if C.PUSH_WATCH else None
                     if w:
                         wfp = f"WATCH|{pname}|{inst_id}|{w['direction']}|{round(w['sweep_level'] / 10) * 10}"
                         if wfp not in state.get("pushed_watch", []):
