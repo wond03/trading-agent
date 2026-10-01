@@ -1,21 +1,35 @@
-# OKX 合约规格探针 (云端运行, 查XAU相关合约与BTC合约的每张面值/最小下单量/最大杠杆)
-import requests, json
-def inst(t):
-    r = requests.get("https://www.okx.com/api/v5/public/instruments", params={"instType": t}, timeout=20)
-    return r.json().get("data", [])
+# OKX模拟盘链路自检: 连通性 → 余额 → 设杠杆 → 测试下单 → 立即平仓
+import sys, os, json
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
+from okx_client import OkxClient
 
-print("===== SWAP 中 XAU/XAUT/GOLD 相关合约 =====")
-for i in inst("SWAP"):
-    if any(k in i["instId"] for k in ("XAU", "XAUT", "GOLD", "PAX")):
-        print(f"{i['instId']} | 每张面值={i['ctVal']} {i['ctValCcy']} | 最小下单={i['minSz']}张 | 下单步长={i['lotSz']} | 最大杠杆={i['lever']} | 类型={i.get('ctType')}")
-print("\n===== BTC-USDT-SWAP 规格 =====")
-for i in inst("SWAP"):
-    if i["instId"] == "BTC-USDT-SWAP":
-        print(f"{i['instId']} | 每张面值={i['ctVal']} {i['ctValCcy']} | 最小下单={i['minSz']}张 | 步长={i['lotSz']} | 最大杠杆={i['lever']} | 最大市价单={i['maxMktSz']}张")
-print("\n===== SPOT 中 XAU/XAUT/PAX 相关 =====")
-for i in inst("SPOT"):
-    if any(k in i["instId"] for k in ("XAU", "XAUT", "PAX")):
-        print(f"{i['instId']} | 最小下单={i['minSz']} | 步长={i['lotSz']}")
-print("\n===== 计价验证 =====")
-r = requests.get("https://www.okx.com/api/v5/market/ticker", params={"instId": "BTC-USDT-SWAP"}, timeout=15).json()
-print("BTC-USDT-SWAP 现价:", r["data"][0]["last"] if r.get("code")=="0" else r)
+c = OkxClient(simulated=True)
+print("=== OKX 模拟盘链路自检 ===")
+print("1) 公开接口连通:", c.ping_public())
+
+try:
+    bal = c.get_balance()
+    if bal.get("code") == "0":
+        d = bal["data"][0]
+        print(f"2) 账户模式: {d.get('acctLv')} | 总权益: {d.get('totalEq')}")
+        for det in d.get("details", [])[:3]:
+            print(f"   {det.get('ccy')}: 可用 {det.get('availBal')} / 冻结 {det.get('frozenBal')}")
+    else:
+        print(f"2) 余额查询失败: {bal}")
+except Exception as e:
+    print(f"2) 余额异常: {e}")
+
+print("3) 设置杠杆(100倍 逐仓):")
+print("   ", c.set_leverage("BTC-USDT-SWAP", 100, "isolated"))
+
+print("4) 测试下单(买 0.01张 市价):")
+r = c.place_order("BTC-USDT-SWAP", "buy", 0.01, td_mode="isolated")
+print("   ", json.dumps(r, ensure_ascii=False)[:300])
+
+if r.get("code") == "0":
+    print("5) 立即平仓:")
+    r2 = c.close_position("BTC-USDT-SWAP", "sell", 0.01, td_mode="isolated")
+    print("   ", json.dumps(r2, ensure_ascii=False)[:300])
+    print("✅ 下单+平仓链路正常")
+else:
+    print("❌ 下单失败 — 需排查(常见: 模拟盘未开通/无资金/权限不足)")
