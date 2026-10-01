@@ -1,7 +1,7 @@
 name: trading-agent
 on:
   schedule:
-    - cron: '*/15 * * * *'   # GitHub原生调度(兜底, 执行率低); 主力靠 cron-job.org 每30分钟触发
+    - cron: '*/5 * * * *'    # 2026-10-02: 提高频率攒样本; 主力靠 cron-job.org 频繁触发(建议5分钟)
   workflow_dispatch: {}       # cron-job.org 通过 API 触发此入口
 permissions:
   contents: write             # 允许提交 state.json (可靠持久化)
@@ -21,7 +21,8 @@ jobs:
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          DRY_RUN: "0"          # 真实模拟盘交易(2026-10-02开启)
+          DRY_RUN: "0"          # 真实模拟盘交易
+          CAPITAL_USD: "100000" # 模拟盘账户资金(用于仓位上限)
         run: python engine/main.py
       - name: 状态持久化(提交到仓库)
         run: |
