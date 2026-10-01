@@ -27,7 +27,7 @@ jobs:
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          DRY_RUN: "1"          # 观察期: 只告警不下单; 验证后改 "0" 启用模拟盘自动交易
+          DRY_RUN: "0"          # 真实模拟盘交易(2026-10-02开启)
         run: python engine/main.py
       - name: 状态持久化(提交到仓库)
         run: |
