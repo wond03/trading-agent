@@ -142,7 +142,8 @@ def build_daily_report(state, now_bj):
             tg = "🧪模拟" if p.get("simulated") else "💰实盘"
             pf = C.STRATEGY_PROFILES.get(p.get("profile", ""), {}).get("label", p.get("profile", ""))
             ptag = f"[{pf}] " if pf else ""
-            lines.append(f"{tg} {ptag}{nm}{sd} · 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} 标{fmt_price(p['tp'])}")
+            _exch = " · 交易所已挂单✅" if p.get("tp_algo_id") or p.get("sl_algo_id") else ""
+            lines.append(f"{tg} {ptag}{nm}{sd} · 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} 标{fmt_price(p['tp'])}{_exch}")
 
     if sigs:
         lines.append("")
@@ -237,6 +238,37 @@ def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
             return lev
     print(f"[杠杆] {inst_id} 各档位均失败, 兜底10x")
     return 10
+
+# ---------- 交易所端止盈止损 (reduceOnly 条件单) ----------
+def _place_exchange_tpsl(client, inst_id, pos_side, sz, td_mode, tp, sl):
+    """把止盈/止损真实挂到交易所, 返回两条 algoId (App持仓页/委托页可见)"""
+    out = {"tp_algo_id": None, "sl_algo_id": None}
+    try:
+        r = client.place_tp_order(inst_id, pos_side, sz, td_mode, tp)
+        out["tp_algo_id"] = ((r.get("data") or [{}])[0] or {}).get("algoId") or None
+        if r.get("code") != "0":
+            print(f"[挂TP失败] {inst_id} {r.get('code')} {r.get('msg')}")
+    except Exception as e:
+        print(f"[挂TP异常] {inst_id} {e}")
+    try:
+        r = client.place_sl_order(inst_id, pos_side, sz, td_mode, sl)
+        out["sl_algo_id"] = ((r.get("data") or [{}])[0] or {}).get("algoId") or None
+        if r.get("code") != "0":
+            print(f"[挂SL失败] {inst_id} {r.get('code')} {r.get('msg')}")
+    except Exception as e:
+        print(f"[挂SL异常] {inst_id} {e}")
+    return out
+
+def _cancel_exchange_tpsl(client, inst_id, p):
+    """撤掉持仓对应的交易所止盈/止损挂单"""
+    for k in ("tp_algo_id", "sl_algo_id"):
+        aid = p.get(k)
+        if aid:
+            try:
+                client.cancel_algo(inst_id, aid)
+            except Exception as e:
+                print(f"[撤单异常] {k} {e}")
+            p[k] = None
 
 def run_once():
     state = load_state()
@@ -346,14 +378,18 @@ def run_once():
                                     time.sleep(0.8)
                                 if fl > 0:
                                     sl_fill = liquidation_sl(avg, sig.direction, leverage=used_lev)[0]  # 止损相对"真实成交价"重算
-                                    line += f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
-                                    state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                                               "entry": avg, "sl": sl_fill, "tp": sig.tp,
-                                                               "size": fl, "ratio": 1.0,
-                                                               "risk_free": False, "tp1_hit": False,
-                                                               "leverage": used_lev, "profile": pname,
-                                                               "run_id": state["last_run_ts"],
-                                                               "opened": int(time.time())})
+                                    posobj = {"inst": inst_id, "direction": sig.direction,
+                                              "entry": avg, "sl": sl_fill, "tp": sig.tp,
+                                              "size": fl, "ratio": 1.0,
+                                              "risk_free": False, "tp1_hit": False,
+                                              "leverage": used_lev, "profile": pname,
+                                              "run_id": state["last_run_ts"],
+                                              "opened": int(time.time())}
+                                    # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
+                                    posobj.update(_place_exchange_tpsl(client, inst_id, _ps, fl, _td, sig.tp, sl_fill))
+                                    state["positions"].append(posobj)
+                                    line += (f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
+                                             f"\n> 🎯 交易所已挂 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}")
                                     state["daily"]["trades"] += 1
                                     state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
                                     _opened = True
@@ -409,6 +445,24 @@ def run_once():
                     if p.get("run_id") == state.get("last_run_ts"):
                         print(f"[新仓位保护] {inst_id} 本轮新建, 跳过出场判断(下轮起管理)")
                         continue
+                    # ★ 自愈: 确保交易所端止盈/止损挂单存在(缺哪条补哪条)
+                    if not DRY_RUN:
+                        _psh = "long" if p["direction"] == "long" else "short"
+                        _tdh = sym_cfg.get("td_mode", "isolated")
+                        _fixed = []
+                        try:
+                            _live = client.algo_ids(inst_id)
+                        except Exception:
+                            _live = None
+                        if _live is not None:
+                            if p.get("tp_algo_id") not in _live:
+                                _r = client.place_tp_order(inst_id, _psh, p["size"], _tdh, p["tp"])
+                                p["tp_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId"); _fixed.append("止盈")
+                            if p.get("sl_algo_id") not in _live:
+                                _r = client.place_sl_order(inst_id, _psh, p["size"], _tdh, p["sl"])
+                                p["sl_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId"); _fixed.append("止损")
+                        if _fixed:
+                            reports.append(f"🛡️ **`{plabel}` {inst_id}** 补挂交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
                     pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
                                    size=p.get("ratio", 1.0), opened_bar=0)
                     pos.risk_free = p.get("risk_free", False)
@@ -422,6 +476,19 @@ def run_once():
                             _nm = "BTC" if "BTC" in inst_id else "黄金"
                             _sd = "多单" if p["direction"] == "long" else "空单"
                             exit_px = act[2] if len(act) > 2 else p["entry"]
+                            _src = "按K线结构"
+                            if not DRY_RUN:
+                                # 先撤交易所止盈/止损挂单, 再市价平仓, 并以交易所真实成交价为准
+                                _cancel_exchange_tpsl(client, inst_id, p)
+                                side = "sell" if p["direction"] == "long" else "buy"
+                                resp = client.close_position(inst_id, side, p["size"],
+                                                             td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
+                                _cod = ((resp.get("data") or [{}])[0] or {}).get("ordId")
+                                for _ in range(5):
+                                    _od = (client.get_order(inst_id, _cod).get("data") or [{}])[0]
+                                    if float(_od.get("accFillSz") or 0) > 0 or _od.get("state") in ("filled", "canceled"):
+                                        exit_px = float(_od.get("avgPx") or exit_px); _src = "交易所成交价"; break
+                                    time.sleep(0.8)
                             ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
                             sign = 1 if p["direction"] == "long" else -1
                             pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
@@ -429,16 +496,13 @@ def run_once():
                             _sim = "（模拟）" if p.get("simulated") else ""
                             _t = " · ".join(x for x in [_nm, _sd, plabel] if x) + _sim
                             reports.append(f"{_ico} **已平仓 · {_t}**\n"
-                                           f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}\n"
+                                           f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}（{_src}）\n"
                                            f"**盈亏** {pnl:+.2f}U（{pnl / C.MARGIN_PER_TRADE * 100:+.0f}%）\n"
                                            f"**原因** {act[1]}")
                             state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
                                 "profile": pname, "pnl": round(pnl, 2),
+                                "entry": round(p["entry"], 2), "exit": round(exit_px, 2),
                                 "detail": f"[{plabel}] {_nm} {p['direction'].upper()} {pnl:+.2f}U"})
-                            if not DRY_RUN:
-                                side = "sell" if p["direction"] == "long" else "buy"
-                                client.close_position(inst_id, side, p["size"],
-                                                      td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
                             state["positions"].remove(p)
                             exited = True
                             break
@@ -451,10 +515,24 @@ def run_once():
                             p["size"] = round(p["size"] - cut, 6)
                             p["ratio"] = pos.size
                             p["tp1_hit"] = True
+                            # 仓位变小 → 交易所止盈/止损按剩余量重挂
+                            if not DRY_RUN:
+                                _cancel_exchange_tpsl(client, inst_id, p)
+                                p.update(_place_exchange_tpsl(client, inst_id, _ps, p["size"],
+                                                              sym_cfg.get("td_mode", "isolated"), p["tp"], p["sl"]))
                             reports.append(f"➗ **{plabel} · {inst_id}** {act[1]}")
                         elif act[0] == "MOVE_SL":
                             p["sl"] = pos.sl
                             p["risk_free"] = pos.risk_free
+                            # 止损移动 → 撤旧挂新, 保持交易所与报表一致
+                            if not DRY_RUN and p.get("sl_algo_id"):
+                                try:
+                                    client.cancel_algo(inst_id, p["sl_algo_id"])
+                                except Exception as e:
+                                    print(f"[撤旧SL异常] {e}")
+                                _r = client.place_sl_order(inst_id, _ps, p["size"],
+                                                           sym_cfg.get("td_mode", "isolated"), pos.sl)
+                                p["sl_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId")
                             reports.append(f"🛡️ **{plabel} · {inst_id}** {act[1]}")
                     if not exited:
                         # 状态写回(修复Bug2: 保本/部分止盈持久化)
