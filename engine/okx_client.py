@@ -113,18 +113,31 @@ class OkxClient:
         t = self.get_tick(inst_id)
         return round(round(float(px) / t) * t, 8)
 
-    def place_tpsl(self, inst_id, pos_side, td_mode="isolated", tp=None, sl=None, close_fraction="1"):
-        """给当前持仓挂止盈止损(策略委托); closeFraction=1 表示平全部仓位
-        pos_side=long → 平仓方向 sell; pos_side=short → 平仓方向 buy"""
+    def _reduce_algo(self, inst_id, pos_side, sz, td_mode, **trig):
+        """下一条 reduceOnly 条件委托 (平仓方向与持仓相反)
+        ★ 实测(2026-10-02): OKX 对 closeFraction 整仓TP/SL单限制"每仓仅1条(51088)";
+          改用 sz+reduceOnly 的独立条件单, 则 TP 与 SL 可同时各挂一条, 且可撤旧挂新"""
         body = {"instId": inst_id, "tdMode": td_mode,
                 "side": "sell" if pos_side == "long" else "buy",
                 "posSide": pos_side, "ordType": "conditional",
-                "closeFraction": str(close_fraction)}
-        if tp:
-            body["tpTriggerPx"] = str(self.round_tick(inst_id, tp)); body["tpOrdPx"] = "-1"
-        if sl:
-            body["slTriggerPx"] = str(self.round_tick(inst_id, sl)); body["slOrdPx"] = "-1"
+                "sz": str(sz), "reduceOnly": True}
+        body.update(trig)
         return self._post("/api/v5/trade/order-algo", body)
+
+    def place_tp_order(self, inst_id, pos_side, sz, td_mode, tp):
+        """挂止盈(条件单, 到价市价平仓)"""
+        return self._reduce_algo(inst_id, pos_side, sz, td_mode,
+                                 tpTriggerPx=str(self.round_tick(inst_id, tp)), tpOrdPx="-1")
+
+    def place_sl_order(self, inst_id, pos_side, sz, td_mode, sl):
+        """挂止损(条件单, 到价市价平仓)"""
+        return self._reduce_algo(inst_id, pos_side, sz, td_mode,
+                                 slTriggerPx=str(self.round_tick(inst_id, sl)), slOrdPx="-1")
+
+    def algo_ids(self, inst_id):
+        """该品种当前在挂的策略委托 id 集合(用于判断挂在不在)"""
+        d = self.get_algo_pending(inst_id=inst_id).get("data") or []
+        return {a.get("algoId") for a in d}
 
     def cancel_algo(self, inst_id, algo_id):
         return self._post("/api/v5/trade/cancel-algos", [{"instId": inst_id, "algoId": algo_id}])
