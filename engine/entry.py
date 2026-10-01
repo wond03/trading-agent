@@ -82,6 +82,7 @@ class EntryEngine:
                 return None
             turn_dir = htf_trend   # 弱转势方向 = 趋势方向
             turn_bar = i           # 弱转势无结构事件, 用当前bar
+            steps["turn"] = f"weak_{turn_dir}"   # 同步steps(修复风控门误拦: 原记录None)
 
         # ④ 等回踩 (规则C6: 回踩到 FVG 或 斐波0.382-0.618 区间)
         post_high = max(c.high for c in candles[sweep[0]:i+1])
