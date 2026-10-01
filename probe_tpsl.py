@@ -1,34 +1,25 @@
-# 诊断7: attachAlgoOrds 路线 (开仓附带TP/SL), 用小额BTC空单, 不碰现有持仓
+# 诊断8: attachAlgoOrds 后, TP/SL 记在哪 (订单明细 + 持仓全字段)
 import sys, os, json, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient
 c = OkxClient(simulated=True)
 INST = "BTC-USDT-SWAP"
-F = ("algoId", "ordType", "side", "posSide", "sz", "closeFraction",
-     "tpTriggerPx", "tpOrdPx", "slTriggerPx", "slOrdPx", "state")
 
-def allpend(tag, inst=INST):
-    d = c.get_algo_pending(inst_id=inst).get("data") or []
-    print(f"{tag} n={len(d)}")
-    for a in d:
-        print("   ", json.dumps({k: a.get(k) for k in F}, ensure_ascii=False))
-
-def clean(inst=INST):
-    for a in (c.get_algo_pending(inst_id=inst).get("data") or []):
-        c.cancel_algo(inst, a["algoId"])
-    time.sleep(1)
-
-clean()
 c.set_leverage(INST, 100, pos_side="short")
 r = c._post("/api/v5/trade/order", {
     "instId": INST, "tdMode": "isolated", "side": "sell", "posSide": "short",
     "ordType": "market", "sz": "0.01",
     "attachAlgoOrds": [{"tpTriggerPx": "83500", "tpOrdPx": "-1", "slTriggerPx": "85600", "slOrdPx": "-1"}]})
-print("ORDER_RESP=", json.dumps(r, ensure_ascii=False)[:250]); time.sleep(2)
-ps = [p for p in (c.get_positions(inst_id=INST).get("data") or []) if p.get("posSide") == "short"]
-print("SHORT_POS=", [{k: p.get(k) for k in ("pos", "avgPx")} for p in ps])
-allpend("AFTER_ATTACH")
-print("收尾: 平掉测试空单")
+oid = (r.get("data") or [{}])[0].get("ordId")
+print("ORD=", oid); time.sleep(2)
+od = (c.get_order(INST, oid).get("data") or [{}])[0]
+print("ORDER_ATTACH=", json.dumps(od.get("attachAlgoOrds"), ensure_ascii=False))
+print("ORDER_SL_TP=", od.get("slTriggerPx"), od.get("tpTriggerPx"), "state=", od.get("state"))
+for p in (c.get_positions(inst_id=INST).get("data") or []):
+    if p.get("posSide") == "short":
+        print("POS_FIELDS=", json.dumps({k: v for k, v in p.items() if "p" in k.lower() or "l" in k.lower() or "s" in k.lower()}, ensure_ascii=False)[:600])
+# 待查: 无过滤的 algo-pending
+print("ALGO_NOFILTER=", json.dumps(c._get("/api/v5/trade/orders-algo-pending", {"instType": "SWAP"}), ensure_ascii=False)[:300])
+print("收尾: 平空单")
 c.close_position(INST, "buy", "0.01", td_mode="isolated", pos_side="short"); time.sleep(1.5)
-clean()
 print("SHORT_LEFT=", [p.get("pos") for p in (c.get_positions(inst_id=INST).get("data") or []) if p.get("posSide") == "short"])
