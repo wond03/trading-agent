@@ -2,7 +2,6 @@
 # 流动性模块 —— 森林查尔斯课程模块B实现
 # 规则依据: B1-B11 (FVG定义/CE中点/iFVG/IFVG牛熊转换/双点截取/内外部流动性)
 import config as C
-from structure import atr
 
 class LiquidityEngine:
     """逐根喂K线, 维护: FVG列表(状态)/截取事件/内外部流动性目标"""
@@ -12,24 +11,25 @@ class LiquidityEngine:
         self.events = []
 
     def process(self, candles):
-        a = atr(candles)
         for i in range(2, len(candles)):
-            self._detect_fvg(candles, i, a)
+            self._detect_fvg(candles, i)
             self._update_fvgs(candles, i)
         self._detect_sweeps(candles)
         return self.snapshot()
 
-    # ---- FVG (规则B1: 三根K线失衡缺口) ----
-    def _detect_fvg(self, candles, i, a):
+    # ---- FVG (规则B1) ----
+    def _detect_fvg(self, candles, i):
+        """FVG = 一根K线留下的缺口
+        原文 BV1w8cuzmE2N[012min]「大幅的拉升在中间产生了一个空档的区域…市场有可能会回补」
+        2026-10-02 去 ATR: 原文没有任何尺寸门槛, 也不要求"三根K线"(那是市面理论, 无原文支撑)"""
         c0, c1, c2 = candles[i-2], candles[i-1], candles[i]
-        min_size = a * C.FVG_MIN_ATR
         # bull FVG: bar[i-2].high < bar[i].low (向上失衡)
-        if c2.low > c0.high and (c2.low - c0.high) >= min_size:
+        if c2.low > c0.high:
             self.fvgs.append({"idx": i, "kind": "bull", "top": c2.low, "bottom": c0.high,
                               "filled": False, "covered": False, "born_idx": i, "entered_idx": None})
             self.events.append((i, "FVG_bull", c0.high, c2.low))
         # bear FVG: bar[i-2].low > bar[i].high (向下失衡)
-        if c2.high < c0.low and (c0.low - c2.high) >= min_size:
+        if c2.high < c0.low:
             self.fvgs.append({"idx": i, "kind": "bear", "top": c0.low, "bottom": c2.high,
                               "filled": False, "covered": False, "born_idx": i, "entered_idx": None})
             self.events.append((i, "FVG_bear", c0.low, c2.high))
