@@ -83,15 +83,40 @@ class LiquidityEngine:
     def _detect_sweeps(self, candles):
         """截取 = 影线扫过「近期已确认swing点」又收回 (规则A11/B8)
         修正: 流动性位用 swing 高点/低点(结构位), 而非近50根极值 —— 符合课程"扫前高/前低"原意
-        双点(B5): 单根K线扫过的 swing 点数 >= 2"""
-        from structure import find_swings
+        双点(B5): 单根K线扫过的 swing 点数 >= 2
+        ★性能优化(数学完全等价, 2026-10-02): 原实现每根K线重算 find_swings(candles[:i]) → 整段回放 O(n^3);
+          改为「一次生成全序列原始 swing + 双指针推进 + 流式复刻相邻同类去重」。
+          等价性依据: swing 点需右侧 right 根确认, 故截至第 i 根时 find_swings(candles[:i]) 可见的
+          最大 swing 下标 = i-1-right; 去重是对"按时间序原始 swing 序列"的左侧折叠, 可按指针推进流式复现。
+          已由 tools/_equiv_check.py 对 BTC/XAU 的 1h/4h/15m 全量逐 i 校验(每根 mismatch=0, 最终 sweeps 相同)。"""
+        left, right = C.SWING_LEFT, C.SWING_RIGHT
+        n = len(candles)
+        # ① 一次生成全序列原始 swing(与 structure.find_swings 的原始部分完全一致: 同索引 H 先 L 后)
+        raw_swings = []
+        for j in range(left, n - right):
+            win = candles[j - left:j + right + 1]
+            bar = candles[j]
+            if bar.high == max(b.high for b in win):
+                raw_swings.append((j, "H", bar.high))
+            if bar.low == min(b.low for b in win):
+                raw_swings.append((j, "L", bar.low))
         raw = []
-        for i in range(10, len(candles)):
-            bar = candles[i]
-            swings = find_swings(candles[:i])     # 截至前一根的已确认swing
-            recent = swings[-6:]                  # 最近6个swing点=待猎取的流动性池
+        m = len(raw_swings)
+        ptr = 0
+        dedup = []                              # 流式复刻 find_swings 的"同价相邻同类去重(保留更高H/更低L)"
+        for i in range(10, n):
+            limit = i - 1 - right               # = find_swings(candles[:i]) 中可能出现的最大的 swing 下标
+            while ptr < m and raw_swings[ptr][0] <= limit:
+                s = raw_swings[ptr]; ptr += 1
+                if dedup and dedup[-1][1] == s[1]:
+                    if (s[1] == "H" and s[2] >= dedup[-1][2]) or (s[1] == "L" and s[2] <= dedup[-1][2]):
+                        dedup[-1] = s
+                else:
+                    dedup.append(s)
+            recent = dedup[-6:]                 # 最近6个swing点=待猎取的流动性池
             if not recent:
                 continue
+            bar = candles[i]
             # 上截取: 影线扫过swing高点, 收盘收回下方
             swept_up = [(si, p) for (si, k, p) in recent if k == "H" and bar.high > p and bar.close < p]
             if swept_up:
