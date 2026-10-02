@@ -35,11 +35,9 @@ STRATEGY_PROFILES = {
 # ---------- 结构引擎 (模块A) ----------
 SWING_LEFT = 2        # swing确认窗口(1H下=2小时) [待标定]
 SWING_RIGHT = 2
-CONSOLIDATION_ATR = 1.5   # [待标定] swing高低点间距 < ATR*此值 → 视为盘整区, 区内突破屏蔽信号(规则A4)
 HTF_TREND_WEIGHT = True   # 多周期共振: 基础周期信号必须与HTF趋势同向(规则A8), 否则降级观察
 
 # ---------- 流动性/FVG (模块B) ----------
-FVG_MIN_ATR = 0.3         # [待标定] FVG最小尺寸 = ATR14 * 此值, 过滤噪声缺口(规则B1)
 IFVG_CONFIRM_BARS = (3, 8)  # IFVG牛熊转换: 下跌FVG出现后3~8根内回填(规则B4), 超过8根视为失效
 SWEEP_WINDOW = 20     # 截取有效期(根): 1H下=20小时
 SWEEP_DOUBLE_POINT_H1 = True   # 2026-10-02 校准恢复: 课程B5"1H必须双点截取"(此前为凑信号量临时放宽为False)
@@ -70,7 +68,6 @@ RISK_PER_TRADE = 0.01         # 单笔风险 = 总仓1% (规则E1/F1)
 MAX_LEVERAGE_CAP = 20         # 个人杠杆上限(规则E4: 老师最高20倍)
 DAILY_MAX_TRADES = 999        # 2026-10-02 用户决定: 暂不设日内限单, 先攒样本数据
 SL_AT_STRUCTURE = True        # 止损挂结构位外侧+留插针空间(规则F3)
-SL_BUFFER_ATR = 0.2           # [待标定] 止损在结构位外再加ATR*此值的插针缓冲
 REQUIRE_ALL_CONDITIONS = True # 五条件严格AND缺一不做(规则F1)
 RR_MIN_GROWTH = 2.0           # 止盈固定1:2 (规则E12; 课程 BV1H8cuzmEbr[037min]"止盈就抓一比二", 前期发育口径). 用户裁定2026-10-02: 不再用斐波扩展凑目标
 WEEKEND_POSITION_FACTOR = 0.5 # [待标定] 周末流动性差减仓系数(规则F9)
