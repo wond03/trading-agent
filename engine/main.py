@@ -390,7 +390,7 @@ def run_once():
 
     # ---- 对账: 与交易所持仓核对(防状态漂移) ----
     # 交易所端触发的止盈/止损会把仓位平掉, 但引擎不知情 → 这里同步, 保证报表=交易所
-    if not DRY_RUN and state.get("positions"):
+    if not DRY_RUN:
         _lp = {}
         for _ in range(3):                     # 3次取并集, 规避接口偶发空返回导致误判
             try:
@@ -399,7 +399,7 @@ def run_once():
                     _lp[_kk] = max(_lp.get(_kk, 0), float(x.get("pos") or 0))
             except Exception as e:
                 print(f"[对账] 查询失败 {e}")
-            time.sleep(1)
+            time.sleep(0.5)
         _state_keys = set()
         for _p in list(state.get("positions", [])):
             _key = (_p["inst"], "long" if _p["direction"] == "long" else "short")
