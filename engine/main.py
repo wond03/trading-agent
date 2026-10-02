@@ -240,6 +240,15 @@ def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
     return 10
 
 # ---------- 交易所端止盈止损 (reduceOnly 条件单) ----------
+def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
+    """自适应止损(按实况): 以信号的结构止损(规则F3)为基础, 随真实成交价平移保持结构距离;
+    但不得越过爆仓安全线——若结构止损比爆仓线更远(会被强平), 则改用爆仓线内(取更靠近入场的那条)。
+    返回 (止损价, 爆仓价)"""
+    liq_sl, liq_px = liquidation_sl(entry_px, direction, leverage=leverage)
+    struct_sl = sig_sl + (entry_px - sig_entry)
+    if direction == "long":
+        return max(struct_sl, liq_sl), liq_px      # 多单: 止损取更高的那条(先触发)
+    return min(struct_sl, liq_sl), liq_px          # 空单: 取更低的那条
 def _place_exchange_tpsl(client, inst_id, pos_side, sz, td_mode, tp, sl):
     """把止盈/止损真实挂到交易所, 返回两条 algoId (App持仓页/委托页可见)"""
     out = {"tp_algo_id": None, "sl_algo_id": None}
@@ -358,7 +367,8 @@ def run_once():
             _fl = float(od.get("accFillSz") or 0)
             _avg = float(od.get("avgPx") or pe.get("signal_entry", 0))
             if _fl > 0:
-                _slf = liquidation_sl(_avg, pe["direction"], leverage=pe["lev"])[0]
+                _slf = adaptive_sl(_avg, pe["direction"], pe.get("sl", pe.get("signal_entry", _avg)),
+                                   pe.get("signal_entry", _avg), pe["lev"])[0]
                 _psx = "long" if pe["direction"] == "long" else "short"
                 _tdx = C.SYMBOLS.get(_pinst, {}).get("td_mode", "isolated")
                 _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": pe["tp"],
@@ -516,7 +526,7 @@ def run_once():
                         want_lev = C.INST_LEVER.get(inst_id, C.LEVERAGE_FIXED)
                         used_lev = resolve_leverage(client, inst_id, want_lev, _td, _ps) if not DRY_RUN else want_lev
                         size = size_fixed_margin(px, inst_id, leverage=used_lev)
-                        sl_use, liq_px = liquidation_sl(sig.entry, sig.direction, leverage=used_lev)
+                        sl_use, liq_px = adaptive_sl(sig.entry, sig.direction, sig.sl, sig.entry, used_lev)
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
                         _opened = False
                         if not DRY_RUN:
@@ -536,7 +546,7 @@ def run_once():
                                         break
                                     time.sleep(0.8)
                                 if fl > 0:
-                                    sl_fill = liquidation_sl(avg, sig.direction, leverage=used_lev)[0]  # 止损相对"真实成交价"重算
+                                    sl_fill = adaptive_sl(avg, sig.direction, sig.sl, sig.entry, used_lev)[0]  # 止损按"真实成交价"平移重算
                                     posobj = {"inst": inst_id, "direction": sig.direction,
                                               "entry": avg, "sl": sl_fill, "tp": sig.tp,
                                               "size": fl, "ratio": 1.0,
@@ -558,7 +568,7 @@ def run_once():
                                     state.setdefault("pending_entries", []).append({
                                         "inst": inst_id, "direction": sig.direction, "size": size["lots"],
                                         "ord_id": ordid, "tp": sig.tp, "profile": pname, "lev": used_lev,
-                                        "grade": getattr(sig, "grade", "B"),
+                                        "grade": getattr(sig, "grade", "B"), "sl": sig.sl,
                                         "signal_entry": sig.entry, "ts": int(time.time())})
                                     line += (f"\n\n> ⏳ 已挂单待成交（状态{stt}）· 订单 {ordid}"
                                              f"\n> 演示盘成交慢，下轮巡检确认成交后再建仓")
