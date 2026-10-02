@@ -55,19 +55,6 @@ def size_fixed_margin(price, inst_id, leverage=None):
             "margin": round(actual_margin, 2), "leverage": lev,
             "risk_amount": round(actual_margin, 2), "stop_pct": round(100.0 / lev, 2)}
 
-def liquidation_price(entry, direction, leverage=None):
-    """爆仓价估算 (反向约1/杠杆-mmr)"""
-    lev = leverage or C.LEVERAGE_FIXED
-    mmr = C.MMR_ESTIMATE
-    if direction == "long":
-        return entry * (1 - 1.0 / lev + mmr)
-    return entry * (1 + 1.0 / lev - mmr)
-
-def liquidation_sl(entry, direction, leverage=None):
-    """等效止损 = 爆仓线前 0.3% 强制平仓 (避免爆仓罚金)
-    返回 (止损价, 爆仓价)"""
-    liq = liquidation_price(entry, direction, leverage)
-    buf = entry * C.LIQ_BUFFER_PCT
-    if direction == "long":
-        return liq + buf, liq      # 多单: 先于爆仓线触发
-    return liq - buf, liq          # 空单
+# ★2026-10-03 用户裁定: 爆仓价一律以【交易所返回的 liqPx】为准, 本地不做任何估算。
+#   原 liquidation_price() / liquidation_sl() 已删除 —— 它们用 MMR_ESTIMATE 臆算爆仓价,
+#   既污染止损决策, 又会在推送里给出与交易所不一致的"爆仓价"。
