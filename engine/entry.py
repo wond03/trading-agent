@@ -29,118 +29,119 @@ class EntryEngine:
     def __init__(self):
         self.last_signal_bar = -99
 
-    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None):
-        """返回 EntrySignal 或 None"""
+    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
+        """返回 EntrySignal 或 None
+        课程原文流程(BV1H8cuzmEe5): ①大级别定趋势 ②下推一级找截取(1H需"双点") ③截取后(切小级别)看转
+                                  ④转了等回踩(踩回FVG) ⑤回踩后切小级别再等转 → 开
+        ★2026-10-02 按原文重建: 转势必须【晚于截取】(用时间比, 非根数); 双点=两根不同K线各扫一点"""
         i = bar_i if bar_i is not None else len(candles) - 1
         a = atr(candles)
         steps = {}
 
-        # ① HTF趋势 (规则A8: 信号必须与大级别同向)
+        # ① 趋势 (规则A8: 必须顺大级别趋势; 趋势=结构方向, 见 main.get_htf_trend)
         steps["htf_trend"] = htf_trend
         if not htf_trend:
             return None
 
         # ② 找截取 (规则C2: 无截取不开单; B5: 1H需双点)
+        #    双点(原文 BV1w8cuzmEqw[104-105min]「一小时要双点…卡了就卡在一起了, 那种都不能算」)
+        #    = 顺势方向上, 有 >=2 根【不同K线】各扫掉过一个点(不是"同一根K线扫2个点")
         recent_sweeps = [s for s in le.sweeps if 0 <= i - s[0] <= C.SWEEP_WINDOW]
-        valid_sweeps = []
-        for s in recent_sweeps:
-            is_double = (s[3] >= 2) if isinstance(s[3], int) else False
-            # sweep方向 vs 趋势方向: 顺势的截取 = 扫对侧流动性
-            if htf_trend == "up" and s[1] == "down":      # 上升趋势中的下截取 = 扫下方流动性(多单机会)
-                if is_double or not C.SWEEP_DOUBLE_POINT_H1:
-                    valid_sweeps.append(s)
-            if htf_trend == "down" and s[1] == "up":      # 下降趋势中的上截取
-                if is_double or not C.SWEEP_DOUBLE_POINT_H1:
-                    valid_sweeps.append(s)
-        steps["sweep"] = valid_sweeps
-        if not valid_sweeps:
+        same_dir = [s for s in recent_sweeps
+                    if (htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up")]
+        if not same_dir:
             return None
-        sweep = valid_sweeps[-1]
-        sweep_pts = sweep[3] if isinstance(sweep[3], int) else 1
+        _bars_hit = sorted({s[0] for s in same_dir})            # 发生过顺势截取的不同K线
+        steps["sweep"] = same_dir
+        if C.SWEEP_DOUBLE_POINT_H1 and len(_bars_hit) < 2:
+            return None                                         # 1H 必须双点
+        sweep = same_dir[-1]
+        sweep_pts = len(_bars_hit)
+        sweep_ts = candles[sweep[0]].ts                         # ★截取发生的时间(转势必须晚于它)
 
-        # ③ 转势确认 (课程校准2026-10-02 · 修正周期): 截取在交易级别(1H)找, 但"转势"要**切到小级别**看 —
-        #    原文 BV1H8cuzmEe5「一小时找到拌饭或双点, 进五分钟看结构」「切小级别, 切小级别再等转」
-        #    → 转势在小级别(15m)判定; 只认 CHoCH(BOS是趋势延续不算); 小级别不可用时才回退本级别结构
-        turn_dir = None
-        turn_bar = None
-        if ltf_se is not None:
-            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
-            _li = getattr(ltf_se, "last_idx", 10 ** 9)
-            if _lx and _lx[-1][0] >= _li - C.TURN_WINDOW_LTF:
-                if htf_trend == "up" and _lx[-1][1] == "CHoCH_up":
-                    turn_dir, turn_bar = "up", _lx[-1][0]
-                elif htf_trend == "down" and _lx[-1][1] == "CHoCH_down":
-                    turn_dir, turn_bar = "down", _lx[-1][0]
-        else:
-            turn_events = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down")]
-            for e in turn_events:
-                if htf_trend == "up" and e[1] == "CHoCH_up":
-                    turn_dir, turn_bar = "up", e[0]; break
-                if htf_trend == "down" and e[1] == "CHoCH_down":
-                    turn_dir, turn_bar = "down", e[0]; break
+        # ③ 转势 (原文 BV1H8cuzmEe5[003/005min]「一小时找到拌饭或双点, 进五分钟看结构」「切小级别再等转」)
+        #    → 转势在【小级别(15m)】看; 只认 CHoCH(BOS不算); 且必须【发生在截取之后】
+        turn_dir, turn_bar, turn_ts = None, None, None
+        if ltf_se is not None and ltf_candles:
+            _li = getattr(ltf_se, "last_idx", len(ltf_candles) - 1)
+            for e in reversed(ltf_se.events):
+                if e[1] not in ("CHoCH_up", "CHoCH_down"):
+                    continue
+                if e[0] < _li - C.TURN_WINDOW_LTF:
+                    break                                       # 更老的也不用看了
+                if not (0 <= e[0] < len(ltf_candles)):
+                    break
+                if ltf_candles[e[0]].ts <= sweep_ts:
+                    break                                       # ★早于截取 → 不算(更老的更早)
+                _d = "up" if e[1] == "CHoCH_up" else "down"
+                if _d == htf_trend:
+                    turn_dir, turn_bar, turn_ts = _d, e[0], ltf_candles[e[0]].ts
+                    break
         sweep_price = sweep[2]                     # 被扫的极端价
         steps["turn"] = turn_dir
         if not turn_dir:
             return None
 
-        # ④ 等回踩 (规则C6: 回踩到 FVG 或 斐波0.382-0.618 区间)
+        # ④ 等回踩 (原文 BV1w8cuzmEqw[061min]「一定要有 feg 的区域, 并且在转四位以内」;
+        #            BV1w8cuzmErh[048min]「只要在里面, 引线上去什么的没所谓」)
+        #    → 价格【首次】与顺势 FVG 区间发生交集(影线触及即可, 不要求收盘价); 且回踩不得破"转势起点"
         post_high = max(c.high for c in candles[sweep[0]:i+1])
         post_low = min(c.low for c in candles[sweep[0]:i+1])
         rng = post_high - post_low
         if rng <= 0:
             return None
+        px = candles[i].close
         fib_levels = [post_high - rng * f for f in C.RETRACE_FIBS] if turn_dir == "up" \
                 else [post_low + rng * f for f in C.RETRACE_FIBS]
-        px = candles[i].close
         in_retrace = any(abs(px - lv) / rng < 0.25 for lv in fib_levels)
-        # FVG 回踩检查 (课程校准: FVG 同样看"切到的级别" —— BV1w8cuzmEr5「切到十五, 它就有对应的FVG」) → 优先小级别FVG
+        _kind = "bull" if turn_dir == "up" else "bear"
         _fsrc = ltf_le if (ltf_le is not None and getattr(ltf_le, "fvgs", None)) else le
-        in_fvg = any(f["kind"] == ("bull" if turn_dir == "up" else "bear")
-                     and f["bottom"] <= px <= f["top"] for f in _fsrc.fvgs)
+        _flist = [f for f in _fsrc.fvgs if f["kind"] == _kind]
+        # 首次进入时间: 截取之后, 小级别K线【首次】与顺势FVG区间有交集(影线触及即可)
+        retrace_ts = None
+        if _flist and ltf_candles:
+            for c in ltf_candles:
+                if c.ts <= sweep_ts:
+                    continue
+                if any(f["bottom"] <= c.high and c.low <= f["top"] for f in _flist):
+                    retrace_ts = c.ts
+                    break
+        in_fvg = retrace_ts is not None
         steps["retrace"] = {"in_retrace": in_retrace, "in_fvg": in_fvg}
         # ★校准(2026-10-02 用户裁定): FVG 是入场的唯一必要条件 —— 没踩到FVG就不做
-        #   (斐波回撤只用于"看折价/溢价区", 不作为单独入场依据)
         if not in_fvg:
             return None
-
-        # ⑤ 触发确认 (校准2026-10-02: 规则C1第⑤步 = 回踩后"切小级别、等小级别转势")
-        trigger = None
-        strong = False
-        if ltf_se is not None:
-            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
-            _li = getattr(ltf_se, "last_idx", 10 ** 9)
-            if _lx and _lx[-1][0] >= _li - C.TURN_WINDOW_LTF:   # 近N根小级别K内的转势(与③同窗口)
-                if turn_dir == "up" and _lx[-1][1] == "CHoCH_up":
-                    trigger, strong = "小级别转多", True
-                elif turn_dir == "down" and _lx[-1][1] == "CHoCH_down":
-                    trigger, strong = "小级别转空", True
-        else:
-            # 小级别数据不可用 → 回退单根K线形态(保底)
-            bar = candles[i]
-            rng_b = bar.high - bar.low
-            lower_wick = min(bar.open, bar.close) - bar.low
-            upper_wick = bar.high - max(bar.open, bar.close)
+        # 回踩不得破"转势起点"(转势那根小级别K线的极值): 多单看低点 / 空单看高点
+        if turn_bar is not None and ltf_candles and 0 <= turn_bar < len(ltf_candles):
+            _tb = ltf_candles[turn_bar]
             if turn_dir == "up":
-                if bar.close > bar.open:
-                    trigger, strong = "回踩收阳", True
-                elif bar.low < candles[i-1].low and bar.close > candles[i-1].close:
-                    trigger, strong = "下刺回收", True
-                elif rng_b > 0 and lower_wick / rng_b >= 0.5:
-                    trigger = "下影拒绝"
+                if min(c.low for c in ltf_candles[turn_bar:]) < _tb.low:
+                    return None
             else:
-                if bar.close < bar.open:
-                    trigger, strong = "回踩收阴", True
-                elif bar.high > candles[i-1].high and bar.close < candles[i-1].close:
-                    trigger, strong = "上刺回收", True
-                elif rng_b > 0 and upper_wick / rng_b >= 0.5:
-                    trigger = "上影拒绝"
+                if max(c.high for c in ltf_candles[turn_bar:]) > _tb.high:
+                    return None
+
+        # ⑤ 触发 (原文 BV1H8cuzmEe5[005min]「回踩之后切小级别, 切小级别再等转, 等转就开多了」)
+        #    → 回踩到位【之后】小级别再出现的同向 CHoCH; 取不到小级别数据就不做(不再自创回退)
+        trigger, strong = None, False
+        if ltf_se is not None and ltf_candles:
+            _li = getattr(ltf_se, "last_idx", len(ltf_candles) - 1)
+            for e in reversed(ltf_se.events):
+                if e[1] not in ("CHoCH_up", "CHoCH_down"):
+                    continue
+                if e[0] < _li - C.TURN_WINDOW_LTF:
+                    break                                       # 更老的也不用看了
+                if not (0 <= e[0] < len(ltf_candles)):
+                    break
+                if ltf_candles[e[0]].ts < retrace_ts:
+                    break                                       # ★早于回踩 → 不算
+                _d = "up" if e[1] == "CHoCH_up" else "down"
+                if _d == turn_dir:
+                    trigger, strong = ("小级别转多" if _d == "up" else "小级别转空"), True
+                    break
         steps["trigger"] = trigger
         if not trigger:
             return None
-
-        if i - self.last_signal_bar < 5:   # 信号去重: 5根内不重复报
-            return None
-        self.last_signal_bar = i
 
         # 生成信号 (用户裁定2026-10-02): SL=截取极值外+缓冲(规则F3); TP=固定 1:2
         #   课程原文 BV1H8cuzmEbr [037min]「止盈的点位你就抓一比二」(前期发育口径) → 不再用斐波扩展凑目标
