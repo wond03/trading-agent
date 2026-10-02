@@ -241,14 +241,13 @@ def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
 
 # ---------- 交易所端止盈止损 (reduceOnly 条件单) ----------
 def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
-    """自适应止损(按实况): 以信号的结构止损(规则F3)为基础, 随真实成交价平移保持结构距离;
-    但不得越过爆仓安全线——若结构止损比爆仓线更远(会被强平), 则改用爆仓线内(取更靠近入场的那条)。
+    """止损口径 (2026-10-03 用户裁定【B】): **严格执行 FVG(结构)止损** —— 不再与爆仓线取近者。
+    结构止损随真实成交价平移(保持 sig_sl 相对 sig_entry 的距离); 爆仓价另返回, 仅供展示/对账。
+    注: 100x 下若结构止损比爆仓线更远, 实盘会**先被强平**(亏损=保证金) —— 这是已知代价。
     返回 (止损价, 爆仓价)"""
     liq_sl, liq_px = liquidation_sl(entry_px, direction, leverage=leverage)
     struct_sl = sig_sl + (entry_px - sig_entry)
-    if direction == "long":
-        return max(struct_sl, liq_sl), liq_px      # 多单: 止损取更高的那条(先触发)
-    return min(struct_sl, liq_sl), liq_px          # 空单: 取更低的那条
+    return struct_sl, liq_px
 def _place_exchange_tpsl(client, inst_id, pos_side, sz, td_mode, tp, sl):
     """把止盈/止损真实挂到交易所, 返回 algoId
     ★严格校验(2026-10-02): 必须 code=0 且 sCode=0 且 algoId 非空 才算挂上; 否则不写id并记入err(防"假成功")
