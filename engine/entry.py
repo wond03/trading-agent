@@ -34,6 +34,8 @@ class EntryEngine:
         ★2026-10-02 按原文重建: 转势必须【晚于截取】(用时间比, 非根数); 双点=两根不同K线各扫一点"""
         i = bar_i if bar_i is not None else len(candles) - 1
         steps = {}
+        self.last_steps = steps   # ★诊断(2026-10-03): 同一个dict对象 → evaluate 返回 None 时,
+                                  #   外部仍可读到"走到了哪一步"(判断本轮为何无信号), 只写日志不推送
 
         # ① 趋势 (规则A8: 必须顺大级别趋势; 趋势=结构方向, 见 main.get_htf_trend)
         steps["htf_trend"] = htf_trend
