@@ -28,7 +28,7 @@ TIMEFRAME_SECONDS = {"1H": 3600, "4H": 14400, "15m": 900, "5m": 300}
 # htf=趋势级别(高一级); base_tf=结构级别(找截取/转势); ltf=触发级别(低一级, 规则C1第⑤步"切小级别等转势")
 STRATEGY_PROFILES = {
     "4-1-15": {"label": "4-1-15", "base_tf": "1H", "htf": "4H", "ltf": "15m",
-               "swing_left": 2, "swing_right": 2, "sweep_window": 20},
+               "swing_left": 2, "swing_right": 2},
 }
 # 日内限单: DAILY_MAX_TRADES 统一上限
 
@@ -39,7 +39,6 @@ HTF_TREND_WEIGHT = True   # 多周期共振: 基础周期信号必须与HTF趋�
 
 # ---------- 流动性/FVG (模块B) ----------
 IFVG_CONFIRM_BARS = (3, 8)  # IFVG牛熊转换: 下跌FVG出现后3~8根内回填(规则B4), 超过8根视为失效
-SWEEP_WINDOW = 20     # 截取有效期(根): 1H下=20小时
 SWEEP_DOUBLE_POINT_H1 = True   # 2026-10-02 校准恢复: 课程B5"1H必须双点截取"(此前为凑信号量临时放宽为False)
 SIGNAL_GRADING = True          # 分级信号: A级(双点+回踩FVG,完整五步) / B级(单点或仅回踩斐波)
 TRUE_BREAK_BY_CLOSE = True    # 实体收过=真突破, 影线刺破收回=截取扫损(规则A11/B11 ★核心二元判定)
@@ -86,4 +85,3 @@ INST_ID_MAP = {"BTC-USDT-SWAP": "BTC-USDT-SWAP", "PAXG-USDT": "PAXG-USDT"}
 
 # ---------- 告警 ----------
 WECOM_WEBHOOK_ENV = "WECOM_WEBHOOK"
-PUSH_WATCH = False            # 2026-10-02 用户决定: 关闭"B级机会观察"推送(意义不大, 减少噪音)
