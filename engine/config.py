@@ -72,7 +72,7 @@ DAILY_MAX_TRADES = 999        # 2026-10-02 用户决定: 暂不设日内限单, 
 SL_AT_STRUCTURE = True        # 止损挂结构位外侧+留插针空间(规则F3)
 SL_BUFFER_ATR = 0.2           # [待标定] 止损在结构位外再加ATR*此值的插针缓冲
 REQUIRE_ALL_CONDITIONS = True # 五条件严格AND缺一不做(规则F1)
-RR_MIN_GROWTH = 2.0           # 前期发育盈亏比1:2(规则E12); 进阶RR>=4
+RR_MIN_GROWTH = 2.0           # 止盈固定1:2 (规则E12; 课程 BV1H8cuzmEbr[037min]"止盈就抓一比二", 前期发育口径). 用户裁定2026-10-02: 不再用斐波扩展凑目标
 WEEKEND_POSITION_FACTOR = 0.5 # [待标定] 周末流动性差减仓系数(规则F9)
 
 # ---------- 滚仓 (模块E) ----------
