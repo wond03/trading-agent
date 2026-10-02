@@ -719,7 +719,8 @@ def run_once():
                         else:
                             p.pop("tpsl_fail", None)
                     pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
-                                   size=p.get("ratio", 1.0), opened_bar=0)
+                                   size=p.get("ratio", 1.0), opened_bar=0,
+                                   inst=inst_id, lots=p.get("size", 0))
                     pos.risk_free = p.get("risk_free", False)
                     pos.tp1_hit = p.get("tp1_hit", False)
                     xe = ExitEngine()
