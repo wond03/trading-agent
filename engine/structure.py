@@ -81,7 +81,7 @@ class StructureEngine:
         if ls and (not self._sl_locked or ls[-1][0] > self._locked_sl_idx):
             self.last_swing_low = ls[-1]
             self._sl_locked = False
-        self.in_consolidation = self._check_consolidation(hs, ls)
+        self.in_consolidation = self._check_consolidation(hs, ls)   # ★仅作日志/诊断参考, 不再参与结构确认(2026-10-03 取消盘整屏蔽)
         if self.last_swing_high is None or self.last_swing_low is None:
             return
         sh_p = self.last_swing_high[2]
@@ -92,36 +92,36 @@ class StructureEngine:
         broke_dn_close = bar.close < sl_p
         broke_dn_wick = bar.low < sl_p and not broke_dn_close
         # 3) 事件判定
+        # ★2026-10-03 用户裁定: **取消「盘整屏蔽」**, 回归课程的二元口径。
+        #   原文 BV1w8cuzmEcp[029min]「开个大级别看它是实体还是引线, 只要是引线它就是假的」
+        #                        「根本不用分析…也不用我煞费苦心地去看我 BOS 的定义了」
+        #   → 实体经济收过 = 真突破 (BOS/CHoCH); 影线刺破 = 假突破 (截取流动性)。
+        #   原「盘整区内突破不确认结构」(consolidation_break_ignored) 会把**实体**突破也否掉,
+        #   与原文冲突(实测: 10-02 01:00 收盘 84,908 越过 84,093 被吞掉, 结构转多迟到约10小时), 已删除。
         if broke_up_close:
-            if self._blocked_by_consolidation("up"):
-                self.events.append((i, "consolidation_break_ignored", sh_p))
+            if self.trend == "down":
+                self.events.append((i, "CHoCH_up", sh_p))       # 规则A2: 收过最后高点 → 由降转升
+                self.trend = "up"
             else:
-                if self.trend == "down":
-                    self.events.append((i, "CHoCH_up", sh_p))       # 规则A2: 下降趋势中收过最后低点上方→此处为收过高点→由降转升
-                    self.trend = "up"
-                else:
-                    self.events.append((i, "BOS_up", sh_p))          # 规则A1
-                    if self.trend is None: self.trend = "up"
-                self.last_swing_high = None  # 突破后锁定, 等新swing确认(规则A5/BOS后重算)
-                self._sh_locked = True
-                self._locked_sh_idx = i
+                self.events.append((i, "BOS_up", sh_p))          # 规则A1
+                if self.trend is None: self.trend = "up"
+            self.last_swing_high = None  # 突破后锁定, 等新swing确认(规则A5/BOS后重算)
+            self._sh_locked = True
+            self._locked_sh_idx = i
         elif broke_up_wick:
-            self.events.append((i, "sweep_up_liquidity", sh_p))      # 影线扫高=上方流动性截取
+            self.events.append((i, "sweep_up_liquidity", sh_p))      # 影线扫高 = 上方流动性截取(假突破)
         if broke_dn_close:
-            if self._blocked_by_consolidation("down"):
-                self.events.append((i, "consolidation_break_ignored", sl_p))
+            if self.trend == "up":
+                self.events.append((i, "CHoCH_down", sl_p))      # 规则A2: 转空
+                self.trend = "down"
             else:
-                if self.trend == "up":
-                    self.events.append((i, "CHoCH_down", sl_p))      # 规则A2: 转空
-                    self.trend = "down"
-                else:
-                    self.events.append((i, "BOS_down", sl_p))
-                    if self.trend is None: self.trend = "down"
-                self.last_swing_low = None
-                self._sl_locked = True
-                self._locked_sl_idx = i
+                self.events.append((i, "BOS_down", sl_p))
+                if self.trend is None: self.trend = "down"
+            self.last_swing_low = None
+            self._sl_locked = True
+            self._locked_sl_idx = i
         elif broke_dn_wick:
-            self.events.append((i, "sweep_down_liquidity", sl_p))    # 影线扫低=下方流动性截取
+            self.events.append((i, "sweep_down_liquidity", sl_p))    # 影线扫低 = 下方流动性截取(假突破)
 
     def _check_consolidation(self, hs, ls):
         """规则A4: 盘整 = "看不到结构"
@@ -137,9 +137,8 @@ class StructureEngine:
         dn_struct = (h2 < h1) and (l2 < l1)     # 高点降低 + 低点降低
         return not (up_struct or dn_struct)
 
-    def _blocked_by_consolidation(self, direction):
-        """规则A4: 盘整区内突破不确认结构"""
-        return self.in_consolidation
+    # ★2026-10-03 用户裁定: 已删除 _blocked_by_consolidation() ——「盘整屏蔽」取消,
+    #   不再用"盘整"去否决实体突破。结构只按课程二元口径: 实体收过=真突破 / 影线刺破=假突破。
 
     def snapshot(self):
         hs = [s for s in self.swings if s[1] == "H"][-2:]
