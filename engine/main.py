@@ -8,7 +8,7 @@ from structure import StructureEngine, Candle
 from liquidity import LiquidityEngine
 from entry import EntryEngine
 from exits import ExitEngine, Position
-from risk import RiskManager, size_fixed_margin, liquidation_sl
+from risk import RiskManager, size_fixed_margin
 from okx_client import OkxClient
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -243,13 +243,28 @@ def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
 
 # ---------- 交易所端止盈止损 (reduceOnly 条件单) ----------
 def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
-    """止损口径 (2026-10-03 用户裁定【B】): **严格执行 FVG(结构)止损** —— 不再与爆仓线取近者。
-    结构止损随真实成交价平移(保持 sig_sl 相对 sig_entry 的距离); 爆仓价另返回, 仅供展示/对账。
-    注: 100x 下若结构止损比爆仓线更远, 实盘会**先被强平**(亏损=保证金) —— 这是已知代价。
-    返回 (止损价, 爆仓价)"""
-    liq_sl, liq_px = liquidation_sl(entry_px, direction, leverage=leverage)
+    """止损口径 (2026-10-03 用户裁定【B/C】): **严格执行 FVG(结构)止损**。
+    结构止损随"真实成交价"平移(保持 sig_sl 相对 sig_entry 的距离), 杠杆不参与止损计算。
+    ★爆仓价一律以【交易所返回的 liqPx】为准 —— 本地**不再估算**(2026-10-03 用户裁定:
+      "爆仓价格按照交易所的价格, 不要自己臆想")。
+    返回 (结构止损价, None)  # 第二项已废弃, 仅为兼容旧调用点保留"""
     struct_sl = sig_sl + (entry_px - sig_entry)
-    return struct_sl, liq_px
+    return struct_sl, None
+
+
+def _ex_liqpx(client, inst_id, pos_side):
+    """取【交易所返回的爆仓价 liqPx】(2026-10-03 用户裁定: 不允许本地臆算)。
+    取不到(净持仓模式/演示盘未返回等) → 返回 None, 由调用方如实告知, 绝不编一个数。"""
+    try:
+        rows = [x for x in (client.get_positions(inst_id=inst_id).get("data") or [])
+                if float(x.get("pos") or 0) != 0]
+        if not rows:
+            return None
+        pick = next((x for x in rows if x.get("posSide") == pos_side), None) or rows[0]
+        v = float(pick.get("liqPx") or 0)
+        return v if v > 0 else None
+    except Exception:
+        return None
 def _place_exchange_tpsl(client, inst_id, pos_side, sz, td_mode, tp, sl):
     """把止盈/止损真实挂到交易所, 返回 algoId
     ★严格校验(2026-10-02): 必须 code=0 且 sCode=0 且 algoId 非空 才算挂上; 否则不写id并记入err(防"假成功")
@@ -480,8 +495,13 @@ def run_once():
                 if _epx <= 0:
                     add("巡检", f"⚠️ **交易所端游离持仓** {_ins} {_psd} {_sz} — 取不到开仓均价，未接管，请核对")
                     continue
-                # 100x 下任何结构止损都会被爆仓线覆盖 → 沿用系统一贯口径: 爆仓线内保命止损
-                _slx, _lqx = liquidation_sl(_epx, _dirx, leverage=_levx)
+                # 孤儿仓(原始信号已丢失, 无 FVG 依据) → 用【交易所返回的爆仓价 liqPx】做保命止损
+                # ★2026-10-03 用户裁定: 爆仓价必须取交易所实际值, 本地不估算; 取不到就不擅自接管
+                _lqx = float(_pd.get("liqPx") or 0)
+                if _lqx <= 0:
+                    add("巡检", f"⚠️ **交易所端游离持仓** {_ins} {_psd} {_sz} — 交易所未返回爆仓价(liqPx)，未接管，请手动处理")
+                    continue
+                _slx = _lqx * (1 - C.LIQ_BUFFER_PCT) if _dirx == "long" else _lqx * (1 + C.LIQ_BUFFER_PCT)
                 _rk = abs(_epx - _slx)
                 _tpx = _epx + _rk * C.RR_MIN_GROWTH if _dirx == "long" else _epx - _rk * C.RR_MIN_GROWTH
                 _np = {"inst": _ins, "direction": _dirx, "entry": round(_epx, 4), "sl": round(_slx, 4),
@@ -633,11 +653,16 @@ def run_once():
                                               "opened": int(time.time())}
                                     # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
                                     posobj.update(_place_exchange_tpsl(client, inst_id, _ps, fl, _td, sig.tp, sl_fill))
+                                    # ★爆仓价: 取【交易所返回的 liqPx】(用户裁定: 不本地臆算; 取不到就如实说明)
+                                    _lqd = _ex_liqpx(client, inst_id, _ps)
+                                    posobj["liq_px"] = _lqd
                                     state["positions"].append(posobj)
                                     _erl2 = posobj.get("err") or []
-                                    line += (f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}" + (
-                                             f"\n> 🎯 交易所已挂 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}" if not _erl2 else
-                                             f"\n> ❌ 交易所挂单**未挂上** {'；'.join(_erl2)}（本地记录 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}，请手动确认）"))
+                                    line += (f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
+                                             + (f"\n> 🎯 交易所已挂 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}" if not _erl2 else
+                                                f"\n> ❌ 交易所挂单**未挂上** {'；'.join(_erl2)}（本地记录 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}，请手动确认）")
+                                             + (f"\n> 💥 爆仓价 {fmt_price(_lqd)}（交易所）" if _lqd
+                                                else "\n> 💥 爆仓价：交易所未返回（不本地估算）"))
                                     state["daily"]["trades"] += 1
                                     state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
                                     _opened = True
