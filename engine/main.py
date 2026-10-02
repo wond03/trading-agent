@@ -140,7 +140,7 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None, prof_label=""):
     _pct_tp = f"{'+' if sig.direction == 'long' else '−'}{tp_pct:.1f}%"
     _emoji = "🚨"
     _title = " · ".join([name, side] + ([prof_label] if prof_label else []))
-    L = [f"{_emoji} **{_g}级信号 · {_title}**",
+    L = [f"{_emoji} **信号 · {_title}**",
          "───────────────",
          f"**进场** {fmt_price(sig.entry)}",
          f"**止损** {fmt_price(sl)}（{_pct_sl}）",
@@ -219,7 +219,7 @@ def build_daily_report(state, now_bj):
 
     if sigs:
         lines.append("")
-        lines.append(f"**24h 信号**（A级{_ga} · B级{_gb}）")
+        lines.append(f"**24h 信号**（共 {len(sigs)} 条）")
         for h in sigs[-4:]:
             pf = C.STRATEGY_PROFILES.get(h.get("profile", ""), {}).get("label", h.get("profile", ""))
             ptag = f"[{pf}] " if pf else ""
