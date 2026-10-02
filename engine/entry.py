@@ -29,7 +29,7 @@ class EntryEngine:
     def __init__(self):
         self.last_signal_bar = -99
 
-    def evaluate(self, candles, se, le, htf_trend, bar_i=None):
+    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None):
         """返回 EntrySignal 或 None"""
         i = bar_i if bar_i is not None else len(candles) - 1
         a = atr(candles)
@@ -58,31 +58,19 @@ class EntryEngine:
         sweep = valid_sweeps[-1]
         sweep_pts = sweep[3] if isinstance(sweep[3], int) else 1
 
-        # ③ 转势确认 (规则C2/C13: 截取后必须出现转势)
-        turn_events = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down", "BOS_up", "BOS_down")]
+        # ③ 转势确认 (校准2026-10-02: 课程"转势"只认 CHoCH/MSS; BOS 是趋势延续, 不算转势)
+        #    并取消自创的"弱转势"(课程无此定义)
+        turn_events = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down")]
         turn_dir = None
         for e in turn_events:
-            if htf_trend == "up" and e[1] in ("CHoCH_up", "BOS_up"):
+            if htf_trend == "up" and e[1] == "CHoCH_up":
                 turn_dir = "up"; turn_bar = e[0]; break
-            if htf_trend == "down" and e[1] in ("CHoCH_down", "BOS_down"):
+            if htf_trend == "down" and e[1] == "CHoCH_down":
                 turn_dir = "down"; turn_bar = e[0]; break
-        sweep_price = sweep[2]                     # 被扫的极端价(提前定义, 供弱转势判断)
+        sweep_price = sweep[2]                     # 被扫的极端价
         steps["turn"] = turn_dir
-        weak_turn = False
         if not turn_dir:
-            # 弱转势(课程语义: 扫完流动性能"站回来"本身即转势证据)
-            # 顺势方向: 扫下方流动性后连续2根收盘高于截取极值 / 扫上方后连续2根收盘低于截取极值
-            if len(candles) >= 3:
-                r2 = candles[i-1:i+1]
-                if htf_trend == "up":
-                    weak_turn = all(c.close > sweep_price for c in r2)
-                else:
-                    weak_turn = all(c.close < sweep_price for c in r2)
-            if not weak_turn:
-                return None
-            turn_dir = htf_trend   # 弱转势方向 = 趋势方向
-            turn_bar = i           # 弱转势无结构事件, 用当前bar
-            steps["turn"] = f"weak_{turn_dir}"   # 同步steps(修复风控门误拦: 原记录None)
+            return None
 
         # ④ 等回踩 (规则C6: 回踩到 FVG 或 斐波0.382-0.618 区间)
         post_high = max(c.high for c in candles[sweep[0]:i+1])
@@ -103,32 +91,37 @@ class EntryEngine:
         if not in_fvg:
             return None
 
-        # ⑤ 触发确认 (规则C13: 回踩中拐头/拒绝/放量 任一即触发)
-        bar = candles[i]
-        rng_b = bar.high - bar.low
-        lower_wick = min(bar.open, bar.close) - bar.low
-        upper_wick = bar.high - max(bar.open, bar.close)
+        # ⑤ 触发确认 (校准2026-10-02: 规则C1第⑤步 = 回踩后"切小级别、等小级别转势")
         trigger = None
-        strong = False   # 强触发直接进A级候选; 弱触发仅B级
-        if turn_dir == "up":
-            if bar.close > bar.open:
-                trigger, strong = "回踩收阳", True
-            elif bar.low < candles[i-1].low and bar.close > candles[i-1].close:
-                trigger, strong = "下刺回收", True
-            elif rng_b > 0 and lower_wick / rng_b >= 0.5:
-                trigger = "下影拒绝"          # 弱触发(长下影=拒绝下跌)
+        strong = False
+        if ltf_se is not None:
+            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
+            _li = getattr(ltf_se, "last_idx", 10 ** 9)
+            if _lx and _lx[-1][0] >= _li - 8:        # 近8根小级别K内的转势才算数
+                if turn_dir == "up" and _lx[-1][1] == "CHoCH_up":
+                    trigger, strong = "小级别转多", True
+                elif turn_dir == "down" and _lx[-1][1] == "CHoCH_down":
+                    trigger, strong = "小级别转空", True
         else:
-            if bar.close < bar.open:
-                trigger, strong = "回踩收阴", True
-            elif bar.high > candles[i-1].high and bar.close < candles[i-1].close:
-                trigger, strong = "上刺回收", True
-            elif rng_b > 0 and upper_wick / rng_b >= 0.5:
-                trigger = "上影拒绝"          # 弱触发
-        # 出量确认(规则C17)
-        vols = [c.vol for c in candles[-21:-1]]
-        if sum(vols) > 0 and bar.vol > (sum(vols)/len(vols)) * C.VOLUME_SPIKE_MULT:
-            trigger = trigger or "放量触发"
-            strong = True
+            # 小级别数据不可用 → 回退单根K线形态(保底)
+            bar = candles[i]
+            rng_b = bar.high - bar.low
+            lower_wick = min(bar.open, bar.close) - bar.low
+            upper_wick = bar.high - max(bar.open, bar.close)
+            if turn_dir == "up":
+                if bar.close > bar.open:
+                    trigger, strong = "回踩收阳", True
+                elif bar.low < candles[i-1].low and bar.close > candles[i-1].close:
+                    trigger, strong = "下刺回收", True
+                elif rng_b > 0 and lower_wick / rng_b >= 0.5:
+                    trigger = "下影拒绝"
+            else:
+                if bar.close < bar.open:
+                    trigger, strong = "回踩收阴", True
+                elif bar.high > candles[i-1].high and bar.close < candles[i-1].close:
+                    trigger, strong = "上刺回收", True
+                elif rng_b > 0 and upper_wick / rng_b >= 0.5:
+                    trigger = "上影拒绝"
         steps["trigger"] = trigger
         if not trigger:
             return None
@@ -149,7 +142,7 @@ class EntryEngine:
             if rr < C.RR_MIN_GROWTH:
                 return None
             conf = "high" if in_fvg and in_retrace else "normal"
-            grade = "A" if (sweep_pts >= 2 and in_fvg and not weak_turn and strong) else "B"
+            grade = "A" if (sweep_pts >= 2 and in_fvg and strong) else "B"
             return EntrySignal("long", px, sl, tp,
                                f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
         else:
@@ -163,7 +156,7 @@ class EntryEngine:
             if rr < C.RR_MIN_GROWTH:
                 return None
             conf = "high" if in_fvg and in_retrace else "normal"
-            grade = "A" if (sweep_pts >= 2 and in_fvg and not weak_turn and strong) else "B"
+            grade = "A" if (sweep_pts >= 2 and in_fvg and strong) else "B"
             return EntrySignal("short", px, sl, tp,
                                f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
 
