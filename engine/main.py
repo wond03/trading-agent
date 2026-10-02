@@ -497,8 +497,8 @@ def run_once():
                 se, le = StructureEngine(), LiquidityEngine()
                 se.process(candles); le.process(candles)
                 htf, htf_src = get_htf_trend(client, inst_id, candles, htf=prof.get("htf", "4H"))
-                # 小级别(下一级): 供规则C1第⑤步"切小级别、等小级别转势"
-                ltf_se = None
+                # 小级别(下一级): 课程C1"截取后切小级别看转势/回踩" → 转势与FVG都在此级别判定
+                ltf_se = ltf_le = None
                 _ltf = prof.get("ltf")
                 if _ltf:
                     try:
@@ -506,6 +506,7 @@ def run_once():
                         if len(_lc) >= 60:
                             ltf_se = StructureEngine(); ltf_se.process(_lc)
                             ltf_se.last_idx = len(_lc) - 1
+                            ltf_le = LiquidityEngine(); ltf_le.process(_lc)
                     except Exception as e:
                         print(f"[LTF] {_ltf}获取失败({type(e).__name__})")
                 px = candles[-1].close
@@ -530,7 +531,7 @@ def run_once():
 
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
-                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se)
+                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le)
                 fp = None
                 if sig:
                     # 指纹用稳定特征: 方案+品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
