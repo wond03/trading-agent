@@ -212,15 +212,19 @@ def fetch_candles(client, inst_id, limit=300, tf=None):
             raise RuntimeError(f"主源失败({e}) 且备用源失败({e2})")
 
 def get_htf_trend(client, inst_id, candles_base, htf="4H"):
-    """趋势级别(上一级): 按方案取(4+1→4H, 1+15→1H); 课程A6 只推一级、不跳级; 日线不用
-    窗口20根消化一次结构; 失败回退基础周期斜率"""
+    """大级别趋势 = 【结构方向】(课程原文: 趋势看截取/BOS 的方向, 不是"相对几根K线涨跌")
+    用高一级周期的结构状态机方向 se.trend(BOS确认 / CHoCH翻转); 判不出 → 返回 None(不开单)
+    2026-10-02 按原文重建: 废弃原先的"最新收盘 vs 20根前收盘"两点比价, 以及 1H 斜率回退"""
     try:
-        c = fetch_candles(client, inst_id, limit=60, tf=htf)
-        if len(c) >= 21:
-            return ("up" if c[-1].close > c[-20].close else "down"), htf
+        c = fetch_candles(client, inst_id, limit=200, tf=htf)
+        if len(c) >= 60:
+            _se = StructureEngine(); _se.process(c)
+            if _se.trend in ("up", "down"):
+                return _se.trend, htf
+            print(f"[HTF] {htf} 结构方向未确立 → 本轮不做")
     except Exception as e:
-        print(f"[HTF] {htf}获取失败({type(e).__name__}), 回退基础周期斜率")
-    return ("up" if candles_base[-1].close > candles_base[-50].close else "down"), "base(回退)"
+        print(f"[HTF] {htf}获取失败({type(e).__name__})")
+    return None, htf
 
 def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
     """设置杠杆并返回实际生效值。各品种上限不同(XAU实测最高50), 100被拒(59102)时逐级下调。"""
@@ -545,12 +549,13 @@ def run_once():
                 se.process(candles); le.process(candles)
                 htf, htf_src = get_htf_trend(client, inst_id, candles, htf=prof.get("htf", "4H"))
                 # 小级别(下一级): 课程C1"截取后切小级别看转势/回踩" → 转势与FVG都在此级别判定
-                ltf_se = ltf_le = None
+                ltf_se = ltf_le = ltf_candles = None
                 _ltf = prof.get("ltf")
                 if _ltf:
                     try:
                         _lc = fetch_candles(client, inst_id, limit=200, tf=_ltf)
                         if len(_lc) >= 60:
+                            ltf_candles = _lc
                             ltf_se = StructureEngine(); ltf_se.process(_lc)
                             ltf_se.last_idx = len(_lc) - 1
                             ltf_le = LiquidityEngine(); ltf_le.process(_lc)
@@ -578,7 +583,7 @@ def run_once():
 
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
-                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le)
+                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le, ltf_candles=ltf_candles)
                 fp = None
                 if sig:
                     # 指纹用稳定特征: 方案+品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
