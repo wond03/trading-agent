@@ -351,6 +351,8 @@ def run_once():
     client = OkxClient(simulated=True)
     reports = []
     market_notes = []
+    def add(cat, txt):
+        reports.append((cat, txt))
 
     # ---- 处理"上轮挂单待成交"的入场单 (XAU演示盘成交慢, 挂单后下轮确认) ----
     if state.get("pending_entries") and not DRY_RUN:
@@ -395,23 +397,23 @@ def run_once():
                 state["daily"].setdefault("by_profile", {})
                 _pf = pe.get("profile", "4H+1H")
                 state["daily"]["by_profile"][_pf] = state["daily"]["by_profile"].get(_pf, 0) + 1
-                reports.append(f"✅ **挂单成交建仓 · {_nm} {_pl}**\n"
+                add("开仓", f"✅ **挂单成交建仓 · {_nm} {_pl}**\n"
                                f"> 成交 {_fl}张 @{_avg:,.1f}\n"
                                f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}")
             elif _st == "canceled":
-                reports.append(f"⚠️ **挂单已取消 · {_nm} {_pl}**（交易所端撤销，未成交）\n"
+                add("委托", f"⚠️ **挂单已取消 · {_nm} {_pl}**（交易所端撤销，未成交）\n"
                                f"> {pe.get('size')}张 · 信号进场 {fmt_price(pe.get('signal_entry', 0))}")
             elif time.time() - pe.get("ts", 0) > 900:
                 try:
                     client.cancel_order(_pinst, pe["ord_id"])
                 except Exception as e:
                     print(f"[撤待成交异常] {e}")
-                reports.append(f"⚠️ **挂单已撤 · {_nm} {_pl}**（挂满15分钟未成交）\n"
+                add("委托", f"⚠️ **挂单已撤 · {_nm} {_pl}**（挂满15分钟未成交）\n"
                                f"> {pe.get('size')}张 · 信号进场 {fmt_price(pe.get('signal_entry', 0))}\n"
                                f"> 已撤销，本轮不开仓")
             else:
                 _keep.append(pe)
-                reports.append(f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
+                add("委托", f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
         state["pending_entries"] = _keep
 
     # ---- 对账: 与交易所持仓核对(防状态漂移) ----
@@ -440,13 +442,13 @@ def run_once():
                 "profile": _p.get("profile", ""), "pnl": round(_rp, 2),
                 "entry": round(_p["entry"], 2), "exit": round(_cpx or _p["entry"], 2),
                 "detail": f"[{_pf}] {_nm} {_p['direction'].upper()} {_rp:+.2f}U(交易所端)"})
-            reports.append(f"🏁 **交易所端已平仓 · {_nm} {_pf}**\n"
+            add("对账", f"🏁 **交易所端已平仓 · {_nm} {_pf}**\n"
                            f"> 交易所止盈/止损已触发，引擎已同步\n"
                            f"> **进出** {fmt_price(_p['entry'])} → {fmt_price(_cpx or _p['entry'])}\n"
                            f"> **盈亏** {_rp:+.2f}U（交易所实现盈亏）")
         for _k, _sz in _lp.items():
             if _sz > 0 and _k not in _state_keys:
-                reports.append(f"⚠️ **交易所端游离持仓** {_k[0]} {_k[1]} {_sz} — 引擎未记录，请核对")
+                add("对账", f"⚠️ **交易所端游离持仓** {_k[0]} {_k[1]} {_sz} — 引擎未记录，请核对")
         # 顺带清理"无持仓"的孤立止盈/止损挂单
         try:
             for _a in (client.get_algo_pending().get("data") or []):
@@ -467,7 +469,7 @@ def run_once():
             _lst.sort(key=lambda x: (_rank(x.get("grade", "B")),
                                      abs(x["tp"] - x["entry"]) / max(abs(x["entry"] - x["sl"]), 1e-9)), reverse=True)
             for _drop in _lst[1:]:
-                reports.append(_close_position_now(client, state, _drop,
+                add("平仓", _close_position_now(client, state, _drop,
                                                    C.SYMBOLS.get(_drop["inst"], {}), "同向重复仓清理(只留一个)"))
 
     for inst_id, sym_cfg in C.SYMBOLS.items():
@@ -481,7 +483,7 @@ def run_once():
                 try:
                     candles = fetch_candles(client, inst_id, tf=prof["base_tf"])
                 except Exception as e:
-                    reports.append(f"❌ `{plabel}` {inst_id} 行情失败: {e}"); continue
+                    add("系统", f"❌ `{plabel}` {inst_id} 行情失败: {e}"); continue
                 if len(candles) < 120:
                     continue
                 se, le = StructureEngine(), LiquidityEngine()
@@ -527,13 +529,13 @@ def run_once():
                     sig = None
                 elif sig and _same:
                     # 新信号质量更高 → 先平旧仓, 再开新仓
-                    reports.append(_close_position_now(client, state, _same, sym_cfg, "换仓: 新信号质量更高, 先平旧仓"))
+                    add("平仓", _close_position_now(client, state, _same, sym_cfg, "换仓: 新信号质量更高, 先平旧仓"))
                     print(f"[换仓] {inst_id} 旧仓{_same.get('grade','B')}级 → 新{getattr(sig,'grade','B')}级")
 
                 if sig:
                     ok, detail = risk.check_gates(sig)
                     if ok and halt_new:
-                        reports.append(f"🛑 **`{plabel}` 连亏保护** 最近3笔全亏，跳过开仓（{inst_id}）")
+                        add("风控", f"🛑 **`{plabel}` 连亏保护** 最近3笔全亏，跳过开仓（{inst_id}）")
                         ok = False
                     if ok:
                         _ps = "long" if sig.direction == "long" else "short"
@@ -600,7 +602,7 @@ def run_once():
                                                        "run_id": state["last_run_ts"],
                                                        "simulated": True, "opened": int(time.time())})
                             _opened = True
-                        reports.append(line)
+                        add("信号", line)
                         if _opened:
                             _nmx = "BTC" if "BTC" in inst_id else "黄金"
                             _sdx = "做多" if sig.direction == "long" else "做空"
@@ -609,7 +611,7 @@ def run_once():
                                 "profile": pname, "grade": getattr(sig, "grade", "A"),
                                 "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
                     else:
-                        reports.append(f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
+                        add("信号", f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
                     # 记录指纹(去重), 保留最近60条
                     state.setdefault("pushed_signals", []).append(fp)
                     state["pushed_signals"] = state["pushed_signals"][-60:]
@@ -621,7 +623,7 @@ def run_once():
                         if wfp not in state.get("pushed_watch", []):
                             _wnm = "BTC" if "BTC" in inst_id else "黄金"
                             _wd = "做多" if w["direction"] == "up" else "做空"
-                            reports.append(
+                            add("观察", 
                                 f"👀 **`{plabel}` B级机会观察 · {_wnm}{_wd}**\n\n"
                                 f"**已完成** 扫过流动性 {fmt_price(w['sweep_level'])}（{w['sweep_pts']}点），价格回踩到位\n"
                                 f"**等什么** 等『实体突破结构』的转势确认 → 确认后升级为 A 级信号\n"
@@ -654,7 +656,7 @@ def run_once():
                                 _r = client.place_sl_order(inst_id, _psh, p["size"], _tdh, p["sl"])
                                 p["sl_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId"); _fixed.append("止损")
                         if _fixed:
-                            reports.append(f"🛡️ **`{plabel}` {inst_id}** 补挂交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
+                            add("委托", f"🛡️ **`{plabel}` {inst_id}** 补挂交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
                     pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
                                    size=p.get("ratio", 1.0), opened_bar=0)
                     pos.risk_free = p.get("risk_free", False)
@@ -687,7 +689,7 @@ def run_once():
                             _ico = "✅" if pnl > 1e-9 else ("➖" if pnl > -1e-9 else "❌")
                             _sim = "（模拟）" if p.get("simulated") else ""
                             _t = " · ".join(x for x in [_nm, _sd, plabel] if x) + _sim
-                            reports.append(f"{_ico} **已平仓 · {_t}**\n"
+                            add("平仓", f"{_ico} **已平仓 · {_t}**\n"
                                            f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}（{_src}）\n"
                                            f"**盈亏** {pnl:+.2f}U（{pnl / C.MARGIN_PER_TRADE * 100:+.0f}%）\n"
                                            f"**原因** {act[1]}")
@@ -712,7 +714,7 @@ def run_once():
                                 _cancel_exchange_tpsl(client, inst_id, p)
                                 p.update(_place_exchange_tpsl(client, inst_id, _ps, p["size"],
                                                               sym_cfg.get("td_mode", "isolated"), p["tp"], p["sl"]))
-                            reports.append(f"➗ **{plabel} · {inst_id}** {act[1]}")
+                            add("平仓", f"➗ **{plabel} · {inst_id}** {act[1]}")
                         elif act[0] == "MOVE_SL":
                             p["sl"] = pos.sl
                             p["risk_free"] = pos.risk_free
@@ -725,7 +727,7 @@ def run_once():
                                 _r = client.place_sl_order(inst_id, _ps, p["size"],
                                                            sym_cfg.get("td_mode", "isolated"), pos.sl)
                                 p["sl_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId")
-                            reports.append(f"🛡️ **{plabel} · {inst_id}** {act[1]}")
+                            add("风控", f"🛡️ **{plabel} · {inst_id}** {act[1]}")
                     if not exited:
                         # 状态写回(修复Bug2: 保本/部分止盈持久化)
                         p["sl"] = pos.sl
@@ -740,8 +742,17 @@ def run_once():
 
     # ---- 推送策略: 有实质内容才推; 无内容静默 ----
     if reports:
+        _order = ["系统", "信号", "开仓", "委托", "风控", "平仓", "对账", "观察"]
+        _blk = {}
+        for _c, _t in reports:
+            _blk.setdefault(_c, []).append(_t)
         header = f"🌙 **暗夜猎手 · 巡检** {now_bj.strftime('%m-%d %H:%M')}"
-        push(f"{header}\n\n" + "\n\n".join(reports))
+        _parts = [header, "━━━━━━━━━━━━━━━"]
+        for _c in _order:
+            if _c in _blk:
+                _parts.append(f"**【{_c}】**")
+                _parts.extend(_blk[_c])
+        push("\n\n".join(_parts))
     else:
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
 
