@@ -1,5 +1,28 @@
 {
- "positions": [],
+ "positions": [
+  {
+   "inst": "BTC-USDT-SWAP",
+   "direction": "long",
+   "entry": 84907.47,
+   "sl": 84737.6551,
+   "tp": 85247.0999,
+   "size": 0.59,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 100,
+   "profile": "4-1-15",
+   "grade": "接管",
+   "run_id": 1790945376.3895547,
+   "opened": 1790945378,
+   "adopted": true,
+   "tp_algo_id": null,
+   "sl_algo_id": "3974286897353965568",
+   "err": [
+    "TP[51279:TP trigger price cannot be lower than the last price ]"
+   ]
+  }
+ ],
  "daily": {
   "date": "2026-10-02",
   "trades": 4,
@@ -8,8 +31,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1790945118.6568873,
- "run_count_today": 87,
+ "last_run_ts": 1790945376.3895547,
+ "run_count_today": 88,
  "history": [
   {
    "type": "signal",
@@ -78,7 +101,7 @@
  ],
  "daily_report_date": "2026-10-02",
  "market_snapshot": [
-  "· `4-1-15` BTC: 上涨趋势 | 活跃FVG 85,532~85,850 | 最近截取 扫上86,888(2点)",
+  "· `4-1-15` BTC: 上涨趋势 | 活跃FVG 85,532~85,850 | 最近截取 扫上86,888(1点)",
   "· `4-1-15` 黄金: 上涨趋势 | 活跃FVG 4,187~4,200 | 最近截取 扫上4,191(2点)"
  ],
  "pushed_watch": [],
