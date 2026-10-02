@@ -291,6 +291,49 @@ def run_once():
     reports = []
     market_notes = []
 
+    # ---- 处理"上轮挂单待成交"的入场单 (XAU演示盘成交慢, 挂单后下轮确认) ----
+    if state.get("pending_entries") and not DRY_RUN:
+        _keep = []
+        for pe in state["pending_entries"]:
+            _pinst = pe["inst"]
+            _pl = C.STRATEGY_PROFILES.get(pe.get("profile", ""), {}).get("label", pe.get("profile", ""))
+            _nm = "BTC" if "BTC" in _pinst else "黄金"
+            try:
+                od = (client.get_order(_pinst, pe["ord_id"]).get("data") or [{}])[0]
+            except Exception as e:
+                print(f"[待成交查询异常] {_pinst} {e}"); _keep.append(pe); continue
+            _st = od.get("state")
+            _fl = float(od.get("accFillSz") or 0)
+            _avg = float(od.get("avgPx") or pe.get("signal_entry", 0))
+            if _fl > 0:
+                _slf = liquidation_sl(_avg, pe["direction"], leverage=pe["lev"])[0]
+                _psx = "long" if pe["direction"] == "long" else "short"
+                _tdx = C.SYMBOLS.get(_pinst, {}).get("td_mode", "isolated")
+                _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": pe["tp"],
+                       "size": _fl, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
+                       "leverage": pe["lev"], "profile": pe.get("profile", "4H+1H"),
+                       "run_id": state["last_run_ts"], "opened": int(time.time())}
+                _po.update(_place_exchange_tpsl(client, _pinst, _psx, _fl, _tdx, pe["tp"], _slf))
+                state["positions"].append(_po)
+                state["daily"]["trades"] = state["daily"].get("trades", 0) + 1
+                state["daily"].setdefault("by_profile", {})
+                _pf = pe.get("profile", "4H+1H")
+                state["daily"]["by_profile"][_pf] = state["daily"]["by_profile"].get(_pf, 0) + 1
+                reports.append(f"✅ **挂单成交建仓 · {_nm} {_pl}**\n"
+                               f"> 成交 {_fl}张 @{_avg:,.1f}\n"
+                               f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}")
+            elif _st == "canceled":
+                reports.append(f"⚠️ **{_nm} {_pl}** 挂单已被取消（未成交）")
+            elif time.time() - pe.get("ts", 0) > 1800:
+                try:
+                    client.cancel_order(_pinst, pe["ord_id"])
+                except Exception as e:
+                    print(f"[撤待成交异常] {e}")
+                reports.append(f"⚠️ **{_nm} {_pl}** 挂单超30分钟未成交，已撤")
+            else:
+                _keep.append(pe)
+        state["pending_entries"] = _keep
+
     for inst_id, sym_cfg in C.SYMBOLS.items():
         if not sym_cfg.get("enabled"):
             continue
@@ -338,9 +381,11 @@ def run_once():
                     if fp in state.get("pushed_signals", []):
                         print(f"[跳过重复信号] {fp}")
                         sig = None
-                # 该方案在该品种已有持仓 → 不重复开仓(方案间互不阻塞)
-                _has_pos = any(p["inst"] == inst_id and p.get("profile", "4H+1H") == pname
-                               for p in state.get("positions", []))
+                # 该方案在该品种已有持仓/挂单 → 不重复开仓(方案间互不阻塞)
+                _has_pos = (any(p["inst"] == inst_id and p.get("profile", "4H+1H") == pname
+                                for p in state.get("positions", []))
+                            or any(pe.get("inst") == inst_id and pe.get("profile", "4H+1H") == pname
+                                   for pe in state.get("pending_entries", [])))
                 if sig and _has_pos:
                     print(f"[跳过] {plabel} {inst_id} 已有持仓, 不重复开仓")
                     sig = None
@@ -394,8 +439,13 @@ def run_once():
                                     state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
                                     _opened = True
                                 else:
-                                    client.cancel_order(inst_id, ordid)
-                                    line += f"\n\n> ❌ 下单未成交(状态{stt})，已撤单，未建仓"
+                                    # 成交慢(尤其XAU演示盘) → 不撤单, 转"挂单待成交", 下轮巡检确认
+                                    state.setdefault("pending_entries", []).append({
+                                        "inst": inst_id, "direction": sig.direction, "size": size["lots"],
+                                        "ord_id": ordid, "tp": sig.tp, "profile": pname, "lev": used_lev,
+                                        "signal_entry": sig.entry, "ts": int(time.time())})
+                                    line += (f"\n\n> ⏳ 已挂单待成交（状态{stt}）· 订单 {ordid}"
+                                             f"\n> 演示盘成交慢，下轮巡检确认成交后再建仓")
                             else:
                                 line += f"\n\n> ❌ 开仓失败 [{dd.get('sCode') or resp.get('code')}] {dd.get('sMsg') or resp.get('msg')}"
                         else:
