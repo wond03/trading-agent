@@ -27,7 +27,7 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1790899708.117561,
+ "last_run_ts": 0,
  "run_count_today": 28,
  "history": [
   {
@@ -56,5 +56,18 @@
   "· `4+15` 黄金: 上涨趋势 | 活跃FVG 4,182~4,185 | 最近截取 扫上4,184(2点)"
  ],
  "pushed_watch": [],
- "fail_streak": 0
+ "fail_streak": 0,
+ "pending_entries": [
+  {
+   "inst": "XAU-USDT-SWAP",
+   "direction": "long",
+   "size": 60,
+   "ord_id": "3972756556270178304",
+   "tp": 4199.0,
+   "profile": "4H+15m",
+   "lev": 50,
+   "signal_entry": 4184.0,
+   "ts": 1790899673
+  }
+ ]
 }
