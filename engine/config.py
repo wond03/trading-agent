@@ -27,9 +27,11 @@ TIMEFRAME_SECONDS = {"1H": 3600, "4H": 14400, "15m": 900, "5m": 300}
 # 每个方案 = 4H 定趋势 + 各自入场周期; 两套并行运行, 信号/持仓/战绩分别标注
 # [待标定] 15m 的 swing/sweep 窗口先用与 1H 相同的"根数"(结构参数, 非固定时间), 上模拟盘后用数据校准
 STRATEGY_PROFILES = {
-    "4H+1H":  {"label": "4+1",  "base_tf": "1H",  "htf": "4H",
+    # 2026-10-02 校准(用户裁定): 周期链 15m→1H→4H, 只推一级; 日线不用
+    # htf=趋势级别(上一级); ltf=触发级别(下一级, 规则C1第⑤步"切小级别等转势")
+    "4H+1H":  {"label": "4+1",  "base_tf": "1H",  "htf": "4H", "ltf": "15m",
                "swing_left": 2, "swing_right": 2, "sweep_window": 20},
-    "4H+15m": {"label": "4+15", "base_tf": "15m", "htf": "4H",
+    "1H+15m": {"label": "1+15", "base_tf": "15m", "htf": "1H", "ltf": "5m",
                "swing_left": 2, "swing_right": 2, "sweep_window": 20},
 }
 # 日内限单: 每方案独立计数(各 2 单/日, 规则F2), 总量上限 = 方案数 × DAILY_MAX_TRADES
@@ -44,7 +46,7 @@ HTF_TREND_WEIGHT = True   # 多周期共振: 基础周期信号必须与HTF趋�
 FVG_MIN_ATR = 0.3         # [待标定] FVG最小尺寸 = ATR14 * 此值, 过滤噪声缺口(规则B1)
 IFVG_CONFIRM_BARS = (3, 8)  # IFVG牛熊转换: 下跌FVG出现后3~8根内回填(规则B4), 超过8根视为失效
 SWEEP_WINDOW = 20     # 截取有效期(根): 1H下=20小时
-SWEEP_DOUBLE_POINT_H1 = False  # 放宽(2026-10-01): 允许单点截取进入候选(原True要求双点, 实测信号过稀15天/个); 单点会标注置信度
+SWEEP_DOUBLE_POINT_H1 = True   # 2026-10-02 校准恢复: 课程B5"1H必须双点截取"(此前为凑信号量临时放宽为False)
 SIGNAL_GRADING = True          # 分级信号: A级(双点+回踩FVG,完整五步) / B级(单点或仅回踩斐波)
 TRUE_BREAK_BY_CLOSE = True    # 实体收过=真突破, 影线刺破收回=截取扫损(规则A11/B11 ★核心二元判定)
 
