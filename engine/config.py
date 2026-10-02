@@ -43,7 +43,6 @@ SWEEP_DOUBLE_POINT_H1 = True   # 课程B5: 1H 截取必须"双点"(≥2根不同
 RETRACE_FIBS = [0.382, 0.5, 0.618]   # 回踩区间(规则C6; 当前仅用于标记 confidence)
 
 # ---------- 出场管理 (模块D) ----------
-VOLUME_SPIKE_MULT = 2.0       # [工] 出量判定 = 前20根均量 × 此值
 TRAIL_SL_ON_BOS = True        # 突破结构位后 SL 移到"被突破位"(规则D4)
 
 # ---------- 风控 (模块F) ----------
