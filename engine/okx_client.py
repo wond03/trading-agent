@@ -113,6 +113,23 @@ class OkxClient:
         t = self.get_tick(inst_id)
         return round(round(float(px) / t) * t, 8)
 
+    def round_sz(self, inst_id, sz):
+        """张数向下对齐 lotSz 整数倍(不低于 minSz)
+        ★修复(2026-10-02) sCode 51121 "Order quantity must be a multiple of the lot size":
+          部分平仓曾产生 0.295 这类非 lotSz(0.01) 整数倍的张数, 导致 TP/SL 条件单全部被拒"""
+        try:
+            import config as C
+            spec = C.INST_SPECS.get(inst_id) or {}
+        except Exception:
+            spec = {}
+        lot = spec.get("lotSz") or 1
+        mn = spec.get("minSz") or lot
+        try:
+            n = int(round(float(sz) / lot, 8)) * lot
+        except Exception:
+            return sz
+        return max(round(n, 8), mn)
+
     def _reduce_algo(self, inst_id, pos_side, sz, td_mode, **trig):
         """下一条 reduceOnly 条件委托 (平仓方向与持仓相反)
         ★ 实测(2026-10-02): OKX 对 closeFraction 整仓TP/SL单限制"每仓仅1条(51088)";
@@ -120,7 +137,7 @@ class OkxClient:
         body = {"instId": inst_id, "tdMode": td_mode,
                 "side": "sell" if pos_side == "long" else "buy",
                 "posSide": pos_side, "ordType": "conditional",
-                "sz": str(sz), "reduceOnly": True}
+                "sz": str(self.round_sz(inst_id, sz)), "reduceOnly": True}
         body.update(trig)
         return self._post("/api/v5/trade/order-algo", body)
 
