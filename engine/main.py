@@ -497,10 +497,13 @@ def run_once():
                 state["positions"].append(_np)
                 _erlx = _np.get("err") or []
                 print(f"[接管] {_ins} {_psd} {_sz}@{_epx} TP={_tpx} SL={_slx} err={_erlx}")
+                _plist = []
+                if _np.get("tp_algo_id"): _plist.append(f"止盈 {fmt_price(_tpx)}")
+                if _np.get("sl_algo_id"): _plist.append(f"止损 {fmt_price(_slx)}")
+                _ptxt = ("已补挂 " + " / ".join(_plist)) if _plist else "⚠️ 未挂上任何保护单"
                 add("巡检", f"🛡️ **接管交易所游离持仓 · {_nmx} {_dirx.upper()}**\n"
                              f"> {_sz}张 @{_epx:,.1f}（交易所均价）· 杠杆 {_levx}x\n"
-                             f"> 已补挂 止盈 {fmt_price(_tpx)} / 止损 {fmt_price(_slx)}"
-                             + ("" if not _erlx else f"\n> ❌ 挂单失败 {'；'.join(_erlx)}"))
+                             f"> {_ptxt}" + ("" if not _erlx else f"\n> ⚠️ 交易所回执：{'；'.join(_erlx)}"))
         # 顺带清理"无持仓"的孤立止盈/止损挂单
         try:
             for _a in (client.get_algo_pending().get("data") or []):
