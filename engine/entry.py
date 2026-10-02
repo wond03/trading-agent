@@ -4,7 +4,7 @@
 import config as C
 
 class EntrySignal:
-    def __init__(self, direction, entry, sl, tp, reason, steps, confidence="normal", grade="A", sweep_pts=1):
+    def __init__(self, direction, entry, sl, tp, reason, steps, confidence="normal", sweep_pts=1):
         self.direction = direction   # 'long' / 'short'
         self.entry = entry
         self.sl = sl
@@ -12,7 +12,6 @@ class EntrySignal:
         self.reason = reason
         self.steps = steps           # 五步通过明细
         self.confidence = confidence # normal / high(多周期共振)
-        self.grade = grade           # A级(双点截取+回踩FVG) / B级(单点或仅斐波回踩)
         self.sweep_pts = sweep_pts   # 截取扫过的点数
 
     def __repr__(self):
@@ -146,9 +145,8 @@ class EntryEngine:
             tp = px + risk * C.RR_MIN_GROWTH                  # 止盈 = 恰好 1:2
             rr = (tp - px) / risk
             conf = "high" if in_fvg and in_retrace else "normal"
-            grade = "A" if (sweep_pts >= 2 and in_fvg and strong) else "B"
             return EntrySignal("long", px, sl, tp,
-                               f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
+                               f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, sweep_pts)
         else:
             sl = _fvg_hit["top"] if _fvg_hit else sweep_price
             risk = sl - px
@@ -157,9 +155,8 @@ class EntryEngine:
             tp = px - risk * C.RR_MIN_GROWTH                  # 止盈 = 恰好 1:2
             rr = (px - tp) / risk
             conf = "high" if in_fvg and in_retrace else "normal"
-            grade = "A" if (sweep_pts >= 2 and in_fvg and strong) else "B"
             return EntrySignal("short", px, sl, tp,
-                               f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
+                               f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, sweep_pts)
 
     # ---------- 模型2: 双蜡烛真假突破 (规则C3, CRT核心) ----------
     def double_candle_breakout(self, candles, i=None):
