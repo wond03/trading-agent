@@ -98,7 +98,9 @@ class EntryEngine:
         in_fvg = any(f["kind"] == ("bull" if turn_dir == "up" else "bear")
                      and f["bottom"] <= px <= f["top"] for f in le.fvgs)
         steps["retrace"] = {"in_retrace": in_retrace, "in_fvg": in_fvg}
-        if not (in_retrace or in_fvg):
+        # ★校准(2026-10-02 用户裁定): FVG 是入场的唯一必要条件 —— 没踩到FVG就不做
+        #   (斐波回撤只用于"看折价/溢价区", 不作为单独入场依据)
+        if not in_fvg:
             return None
 
         # ⑤ 触发确认 (规则C13: 回踩中拐头/拒绝/放量 任一即触发)
@@ -197,7 +199,7 @@ class EntryEngine:
         in_retrace = any(abs(px - f) / rng < 0.25 for f in fibs)
         in_fvg = any((f["kind"] == ("bull" if htf_trend == "up" else "bear"))
                      and f["bottom"] <= px <= f["top"] for f in le.fvgs)
-        if not (in_retrace or in_fvg):
+        if not in_fvg:
             return None
         fp = f"WATCH|{htf_trend}|{round(sweep[2] / 10) * 10}"
         if fp in self._watch_seen:
