@@ -2,7 +2,6 @@
 # 入场模板 —— 森林查尔斯课程模块C实现
 # 规则依据: C1-C20 (五步流程/双蜡烛真假突破/MSS双仓/斐波分批/等待序列/时段过滤)
 import config as C
-from structure import atr
 
 class EntrySignal:
     def __init__(self, direction, entry, sl, tp, reason, steps, confidence="normal", grade="A", sweep_pts=1):
@@ -35,7 +34,6 @@ class EntryEngine:
                                   ④转了等回踩(踩回FVG) ⑤回踩后切小级别再等转 → 开
         ★2026-10-02 按原文重建: 转势必须【晚于截取】(用时间比, 非根数); 双点=两根不同K线各扫一点"""
         i = bar_i if bar_i is not None else len(candles) - 1
-        a = atr(candles)
         steps = {}
 
         # ① 趋势 (规则A8: 必须顺大级别趋势; 趋势=结构方向, 见 main.get_htf_trend)
@@ -99,12 +97,14 @@ class EntryEngine:
         _flist = [f for f in _fsrc.fvgs if f["kind"] == _kind]
         # 首次进入时间: 截取之后, 小级别K线【首次】与顺势FVG区间有交集(影线触及即可)
         retrace_ts = None
+        _fvg_hit = None
         if _flist and ltf_candles:
             for c in ltf_candles:
                 if c.ts <= sweep_ts:
                     continue
-                if any(f["bottom"] <= c.high and c.low <= f["top"] for f in _flist):
-                    retrace_ts = c.ts
+                _hit = next((f for f in _flist if f["bottom"] <= c.high and c.low <= f["top"]), None)
+                if _hit:
+                    retrace_ts, _fvg_hit = c.ts, _hit
                     break
         in_fvg = retrace_ts is not None
         steps["retrace"] = {"in_retrace": in_retrace, "in_fvg": in_fvg}
@@ -143,10 +143,10 @@ class EntryEngine:
         if not trigger:
             return None
 
-        # 生成信号 (用户裁定2026-10-02): SL=截取极值外+缓冲(规则F3); TP=固定 1:2
-        #   课程原文 BV1H8cuzmEbr [037min]「止盈的点位你就抓一比二」(前期发育口径) → 不再用斐波扩展凑目标
+        # 生成信号 (2026-10-02 用户裁定): SL 挂【入场所用 FVG 的外沿】(不再用结构极值+ATR缓冲);
+        #   TP 固定 1:2 (课程原文 BV1H8cuzmEbr[037min]「止盈的点位你就抓一比二」)
         if turn_dir == "up":
-            sl = sweep_price - a * C.SL_BUFFER_ATR
+            sl = _fvg_hit["bottom"] if _fvg_hit else sweep_price
             risk = px - sl
             if risk <= 0:
                 return None
@@ -157,7 +157,7 @@ class EntryEngine:
             return EntrySignal("long", px, sl, tp,
                                f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
         else:
-            sl = sweep_price + a * C.SL_BUFFER_ATR
+            sl = _fvg_hit["top"] if _fvg_hit else sweep_price
             risk = sl - px
             if risk <= 0:
                 return None
