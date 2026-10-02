@@ -40,8 +40,11 @@ class OkxClient:
 
     # ---------- 行情 (公开接口, 无需签名) ----------
     def get_candles(self, inst_id="BTC-USDT-SWAP", bar="1H", limit=300):
-        """返回按时间升序的 Candle 列表; OKX 原始返回为降序, 此处反转
-        字段: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]"""
+        """返回按时间升序的【已收盘】Candle 列表; OKX 原始返回为降序, 此处反转
+        字段: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+        ★2026-10-03 未来函数修复: 剔除 confirm!="1" 的未收盘K线。
+          OKX /market/candles 最新一根是"正在形成"的K线; 若喂进结构/流动性引擎,
+          会在盘中判出 BOS/CHoCH/FVG/截取, 收盘后可能反转消失 = 信号重绘(实盘信号失真)。"""
         import sys
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from structure import Candle
@@ -50,8 +53,12 @@ class OkxClient:
         d = r.json()
         if d.get("code") != "0":
             raise RuntimeError(f"OKX行情失败: {d.get('code')} {d.get('msg')}")
-        rows = list(reversed(d["data"]))
-        return [Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])) for x in rows]
+        out = []
+        for x in reversed(d["data"]):
+            if len(x) > 8 and str(x[8]) != "1":
+                continue                      # 丢弃未收盘K线(confirm=0)
+            out.append(Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])))
+        return out
 
     # ---------- 杠杆设置 (100倍必须显式设置) ----------
     def set_leverage(self, inst_id, lever, mgn_mode="isolated", pos_side=None):
