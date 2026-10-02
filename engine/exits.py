@@ -2,7 +2,6 @@
 # 出场管理 —— 森林查尔斯课程模块D实现
 # 规则依据: D1-D8 (止盈三原则/前高保本/结构位追踪止损/提前止盈)
 import config as C
-from structure import atr
 
 class Position:
     def __init__(self, direction, entry, sl, tp, size=1.0, opened_bar=0):
@@ -83,12 +82,12 @@ class ExitEngine:
         if C.TRAIL_SL_ON_BOS:
             for e in [x for x in se.events if 0 <= i - x[0] <= 2]:
                 if pos.direction == "long" and e[1] == "BOS_up":
-                    new_sl = e[2] - atr(candles) * C.SL_BUFFER_ATR
+                    new_sl = e[2]                       # 移到"被突破位"(原文D4; 2026-10-02 去掉ATR缓冲)
                     if new_sl > pos.sl:
                         actions.append(("MOVE_SL", f"BOS_up突破位{e[2]:.1f}, SL上移 (规则D4)"))
                         pos.sl = new_sl
                 if pos.direction == "short" and e[1] == "BOS_down":
-                    new_sl = e[2] + atr(candles) * C.SL_BUFFER_ATR
+                    new_sl = e[2]                       # 移到"被突破位"(原文D4)
                     if new_sl < pos.sl:
                         actions.append(("MOVE_SL", f"BOS_down突破位{e[2]:.1f}, SL下移 (规则D4)"))
                         pos.sl = new_sl
