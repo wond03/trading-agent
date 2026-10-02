@@ -22,7 +22,7 @@ class Position:
 
 class ExitEngine:
     """止盈三原则 (规则D1):
-    ①出量(成交量>均量*2) → 止盈(至少部分)
+    ①出量(成交量>均量*2) → 上保本 (2026-10-02 用户裁定: 只上保护, 不主动减仓)
     ②趋势转换(反向CHoCH) → 立即出场, 不论盈亏
     ③到TP → 止盈
     附加: 摸前高/前低→上保本(D2); 突破结构位→SL移到被突破位(D4)"""
@@ -58,13 +58,15 @@ class ExitEngine:
             actions.append(("EXIT", "趋势转换CHoCH_up, 立即出场不论盈亏 (规则D1-②)", bar.close))
             return actions
 
-        # ---- 规则D1-①: 出量止盈 (部分) ----
+        # ---- 规则D1-①: 出量 → 上保本 (用户裁定2026-10-02: 改为不主动减仓) ----
+        #   课程 BV1H8cuzmEe5[004min]「一旦出量就要吃」; BV1w8cuzmEFY[013min]「上保护之前你都要吃」
+        #   → 口径: 出量只把止损移到成本价(上保护), 仓位不动; 出场交给 TP(D1-③) / 趋势转换(D1-②)
         vols = [c.vol for c in candles[max(0, i-20):i]]
         if vols and bar.vol > (sum(vols)/len(vols)) * C.VOLUME_SPIKE_MULT:
-            if not pos.tp1_hit:
-                actions.append(("PARTIAL_TP", f"出量(vol={bar.vol:.0f}), 部分止盈50% (规则D1-①)"))
-                pos.tp1_hit = True
-                pos.size *= 0.5
+            if not pos.risk_free:
+                pos.sl = max(pos.sl, pos.entry) if pos.direction == "long" else min(pos.sl, pos.entry)
+                pos.risk_free = True
+                actions.append(("MOVE_SL", f"出量(vol={bar.vol:.0f}) → 止损上移保本 (规则D1-①)"))
 
         # ---- 规则D2: 摸前高/前低 → 上保本 ----
         if not pos.risk_free:
