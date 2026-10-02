@@ -98,6 +98,23 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None, prof_label=""):
         L += ["", "> 模拟观察，未实际下单"]
     return "\n".join(L)
 
+
+def why_no_signal(ee):
+    """把入场引擎最后的进度翻译成"卡在哪一步" (★仅写运行日志, 不推送企业微信)"""
+    st = getattr(ee, "last_steps", None) or {}
+    if not st.get("htf_trend"):
+        return "卡① 趋势: 4H 结构方向未确立"
+    if "sweep" not in st:
+        return "卡② 截取: 本段(上次反向结构破坏之后)无顺势截取, 或未达双点"
+    if not st.get("turn"):
+        return "卡③ 转势: 15m 无「晚于截取」的同向 CHoCH"
+    r = st.get("retrace") or {}
+    if not r.get("in_fvg"):
+        return "卡④ 回踩: 价格尚未触及 15m 顺势 FVG"
+    if not st.get("trigger"):
+        return "卡⑤ 触发: 回踩之后 15m 未再出现同向 CHoCH"
+    return "⑤之后被拦(如止损距离<=0)"
+
 def build_daily_report(state, now_bj):
     """每日日报 (北京时间早8点后首次运行推送)"""
     day = now_bj.strftime("%m-%d")
@@ -594,6 +611,8 @@ def run_once():
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
                 sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le, ltf_candles=ltf_candles)
+                if sig is None:
+                    print(f"[无信号] {inst_id} {plabel} → {why_no_signal(ee)}")
                 fp = None
                 if sig:
                     # 指纹用稳定特征: 方案+品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
