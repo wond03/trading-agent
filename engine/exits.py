@@ -23,10 +23,10 @@ class Position:
 
 class ExitEngine:
     """出场规则:
-    ①趋势转换(反向CHoCH) → 立即出场, 不论盈亏 (规则D1-②)
-    ②到 TP → 止盈 (规则D1-③)
-    附加: 摸前高/前低→上保本(D2); 突破结构位→SL移到被突破位(D4)
-    说明: 原文的"出量止盈"(D1-①) 2026-10-03 用户裁定不做"""
+    ①到 TP → 止盈 (规则D1-③)
+    ②浮盈达 1 倍保证金(5U) → 上保本(止损移到成本价)
+    附加: 突破结构位 → SL 移到被突破位(D4)
+    说明: 原文的"出量止盈"(D1-①) 与"反向CHoCH立即出场"(D1-②), 2026-10-03 用户裁定均不做"""
 
     def manage(self, pos, candles, se, le, i=None):
         """返回动作列表: ('EXIT'|'PARTIAL_TP'|'MOVE_SL'|'HOLD', 说明)"""
@@ -50,14 +50,7 @@ class ExitEngine:
                 actions.append(("EXIT", f"止盈触发TP @{pos.tp:.1f} (规则D1-③)", pos.tp))
                 return actions
 
-        # ---- 规则D1-②: 反向CHoCH → 立即出场 ----
-        recent = [e for e in se.events if 0 <= i - e[0] <= 3]
-        if pos.direction == "long" and any(e[1] == "CHoCH_down" for e in recent):
-            actions.append(("EXIT", "趋势转换CHoCH_down, 立即出场不论盈亏 (规则D1-②)", bar.close))
-            return actions
-        if pos.direction == "short" and any(e[1] == "CHoCH_up" for e in recent):
-            actions.append(("EXIT", "趋势转换CHoCH_up, 立即出场不论盈亏 (规则D1-②)", bar.close))
-            return actions
+        # ---- 规则D1-② "反向CHoCH→立即出场": 2026-10-03 用户裁定【不作为出场方式, 已移除】----
 
         # ---- 规则D1-① "出量止盈": 2026-10-03 用户裁定【不做】(原文只讲"出量要吃", 没给任何可量化定义) ----
 
