@@ -1,5 +1,5 @@
 # 暗夜猎手 · 推送用信号标注图
-# 两联图: 上=1H(结构/截取/BOS/CHoCH)  下=15m(转势CHoCH + FVG回踩区)
+# 两联图: 上=1H(结构/截取/BOS/CHoCH)  下=15m(反转预警 CHoCH + FVG回踩区)
 # 并画出该笔的 进场/止损/止盈/离场 水平线
 # ★容错原则(2026-10-03): 任何异常只打印并返回 None, **绝不允许影响交易主流程**
 import datetime
@@ -85,13 +85,15 @@ def render(inst_id, bars_main, bars_ltf, se, le, s15, l15, lines, out_path,
         for k, e in enumerate(ev):                    # BOS / CHoCH (交错高度防重叠)
             up = e[1].endswith("up")
             dy = (18 if up else -22) + (11 if k % 2 else 0) * (1 if up else -1)
-            ax1.annotate(e[1], (X(bars_main[e[0]].ts), e[2]), textcoords="offset points",
+            _lab = {"BOS_up": "BOS↑", "BOS_down": "BOS↓", "CHoCH_up": "反转预警↑",
+                    "CHoCH_down": "反转预警↓"}.get(e[1], e[1])
+            ax1.annotate(_lab, (X(bars_main[e[0]].ts), e[2]), textcoords="offset points",
                          xytext=(0, dy), ha="center", fontsize=8,
                          fontweight="bold", color="#0b6b5e" if up else "#8e2f2a")
 
         # ---------- 下: 小周期(15m) ----------
         draw(ax2, L, 0.62 / 96)
-        ax2.set_title(f"{nm} · {ltf_tf}   转势 CHoCH ＋ FVG(回踩区)", fontsize=12, pad=8)
+        ax2.set_title(f"{nm} · {ltf_tf}   反转预警 CHoCH ＋ FVG(回踩区)", fontsize=12, pad=8)
         for f in getattr(l15, "fvgs", []):
             if 0 <= f["idx"] < len(bars_ltf) and inwin(bars_ltf[f["idx"]].ts, L):
                 col = "#26a69a" if f["kind"] == "bull" else "#ef5350"
@@ -103,7 +105,7 @@ def render(inst_id, bars_main, bars_ltf, se, le, s15, l15, lines, out_path,
             if e[1] in ("CHoCH_up", "CHoCH_down") and 0 <= e[0] < len(bars_ltf) \
                and inwin(bars_ltf[e[0]].ts, L):
                 up = e[1].endswith("up")
-                ax2.annotate("转" + ("多" if up else "空"), (X(bars_ltf[e[0]].ts), e[2]),
+                ax2.annotate("反转预警" + ("↑" if up else "↓"), (X(bars_ltf[e[0]].ts), e[2]),
                              textcoords="offset points", xytext=(0, 18 if up else -24), ha="center",
                              fontsize=8.5, fontweight="bold", color="#0b6b5e" if up else "#8e2f2a")
 
