@@ -59,7 +59,7 @@ FIB_TARGET_MAP = {            # 目标映射(规则C7, 两集口径不一, 取�
 MSS_TWO_POS_RATIO = [0.6, 0.4]  # MSS双仓: 第一仓60% + CHoCH确认回踩补40%(规则C5)
 
 # ---------- 出场管理 (模块D) ----------
-EXIT_ON_VOLUME_SPIKE = True   # 出量止盈(规则D1), 阈值见下
+EXIT_ON_VOLUME_SPIKE = True   # 出量→上保本(规则D1-①; 用户裁定2026-10-02: 只上保本不主动减仓), 阈值见下
 VOLUME_SPIKE_MULT = 2.0       # [待标定] 成交量 > 20期均量*此倍数 = 出量
 EXIT_ON_CHOCH_REVERSE = True  # 趋势转换立即出场不论盈亏(规则D1)
 TP1_PREV_SWING = True         # TP1=段起点前高/前低, 到位上保本(规则D2/D8)
