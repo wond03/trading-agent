@@ -197,7 +197,7 @@ def _fetch_gate(inst_id, limit, tf="1h"):
 def fetch_candles(client, inst_id, limit=300, tf=None):
     """数据源路由 + 故障自愈: OKX主力 → 失败自动切换 Gate.io 备用"""
     tf = tf or C.BASE_TF
-    gate_tf = {"1H": "1h", "4H": "4h", "15m": "15m"}.get(tf, "1h")
+    gate_tf = {"1H": "1h", "4H": "4h", "15m": "15m", "5m": "5m"}.get(tf, "1h")
     if os.environ.get("DATA_SOURCE") == "gate":
         return _fetch_gate(inst_id, limit, gate_tf)
     try:
@@ -211,15 +211,15 @@ def fetch_candles(client, inst_id, limit=300, tf=None):
         except Exception as e2:
             raise RuntimeError(f"主源失败({e}) 且备用源失败({e2})")
 
-def get_htf_trend(client, inst_id, candles_base):
-    """大周期趋势: 优先用真实4H数据(课程A6: 只推一级); 失败回退基础周期斜率
-    4H窗口20根 ≈ 3.3天, 比1H-50根更稳定, 避免趋势频繁翻转。两方案共用同一4H趋势。"""
+def get_htf_trend(client, inst_id, candles_base, htf="4H"):
+    """趋势级别(上一级): 按方案取(4+1→4H, 1+15→1H); 课程A6 只推一级、不跳级; 日线不用
+    窗口20根消化一次结构; 失败回退基础周期斜率"""
     try:
-        c4 = fetch_candles(client, inst_id, limit=60, tf="4H")
-        if len(c4) >= 21:
-            return ("up" if c4[-1].close > c4[-20].close else "down"), "4H"
+        c = fetch_candles(client, inst_id, limit=60, tf=htf)
+        if len(c) >= 21:
+            return ("up" if c[-1].close > c[-20].close else "down"), htf
     except Exception as e:
-        print(f"[HTF] 4H获取失败({type(e).__name__}), 回退基础周期斜率")
+        print(f"[HTF] {htf}获取失败({type(e).__name__}), 回退基础周期斜率")
     return ("up" if candles_base[-1].close > candles_base[-50].close else "down"), "base(回退)"
 
 def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
@@ -488,7 +488,18 @@ def run_once():
                     continue
                 se, le = StructureEngine(), LiquidityEngine()
                 se.process(candles); le.process(candles)
-                htf, htf_src = get_htf_trend(client, inst_id, candles)
+                htf, htf_src = get_htf_trend(client, inst_id, candles, htf=prof.get("htf", "4H"))
+                # 小级别(下一级): 供规则C1第⑤步"切小级别、等小级别转势"
+                ltf_se = None
+                _ltf = prof.get("ltf")
+                if _ltf:
+                    try:
+                        _lc = fetch_candles(client, inst_id, limit=200, tf=_ltf)
+                        if len(_lc) >= 60:
+                            ltf_se = StructureEngine(); ltf_se.process(_lc)
+                            ltf_se.last_idx = len(_lc) - 1
+                    except Exception as e:
+                        print(f"[LTF] {_ltf}获取失败({type(e).__name__})")
                 px = candles[-1].close
 
                 # ---- 市场状态采集(供日报) ----
@@ -511,7 +522,7 @@ def run_once():
 
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
-                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1)
+                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se)
                 fp = None
                 if sig:
                     # 指纹用稳定特征: 方案+品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
