@@ -399,13 +399,16 @@ def run_once():
                                f"> 成交 {_fl}张 @{_avg:,.1f}\n"
                                f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}")
             elif _st == "canceled":
-                reports.append(f"⚠️ **{_nm} {_pl}** 挂单已被取消（未成交）")
-            elif time.time() - pe.get("ts", 0) > 1200:
+                reports.append(f"⚠️ **挂单已取消 · {_nm} {_pl}**（交易所端撤销，未成交）\n"
+                               f"> {pe.get('size')}张 · 信号进场 {fmt_price(pe.get('signal_entry', 0))}")
+            elif time.time() - pe.get("ts", 0) > 900:
                 try:
                     client.cancel_order(_pinst, pe["ord_id"])
                 except Exception as e:
                     print(f"[撤待成交异常] {e}")
-                reports.append(f"⚠️ **{_nm} {_pl}** 挂单超20分钟未成交，已撤")
+                reports.append(f"⚠️ **挂单已撤 · {_nm} {_pl}**（挂满15分钟未成交）\n"
+                               f"> {pe.get('size')}张 · 信号进场 {fmt_price(pe.get('signal_entry', 0))}\n"
+                               f"> 已撤销，本轮不开仓")
             else:
                 _keep.append(pe)
                 reports.append(f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
