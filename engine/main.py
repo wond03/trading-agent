@@ -440,6 +440,16 @@ def run_once():
             except Exception as e:
                 print(f"[对账] 查询失败 {e}")
             time.sleep(0.5)
+        print(f"[对账] 交易所持仓={_lp} 本地={[(x['inst'], x['direction'], x.get('size')) for x in state.get('positions', [])]}")
+        # ★张数同步(2026-10-02): 本地与交易所不一致(如历史"部分平仓"残留 0.295 这类非整倍张数)
+        #   → 以交易所为准, 并撤掉旧TP/SL(由持仓循环的自愈按正确张数重挂)
+        for _p in list(state.get("positions", [])):
+            _key = (_p["inst"], "long" if _p["direction"] == "long" else "short")
+            _exz = _lp.get(_key, 0)
+            if _exz > 0 and abs(float(_p.get("size", 0)) - _exz) > 1e-9:
+                print(f"[对账] {_p['inst']} 本地张数 {_p.get('size')} → 交易所 {_exz}, 已同步并准备重挂TP/SL")
+                _cancel_exchange_tpsl(client, _p["inst"], _p)
+                _p["size"] = _exz
         _state_keys = set()
         for _p in list(state.get("positions", [])):
             _key = (_p["inst"], "long" if _p["direction"] == "long" else "short")
