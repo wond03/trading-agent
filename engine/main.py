@@ -70,7 +70,7 @@ def push_image(png_path):
 
 
 def push_chart(client, inst_id, lines, title=""):
-    """渲染并推送「信号标注图」: 上=1H(结构/截取/BOS/CHoCH) 下=15m(转势CHoCH+FVG)
+    """渲染并推送「信号标注图」: 上=1H(结构/截取/BOS/CHoCH) 下=15m(反转预警 CHoCH+FVG)
     并把该笔的 进场/止损/目标 画上去。lines=[(价格,标签,颜色hex)]
     ★容错: 取数/画图/推送 任一步失败都只打印, **绝不影响交易主流程**。"""
     if not WECOM:
@@ -122,8 +122,8 @@ def simplify_reason(reason):
     r = reason.split("|")[0] if "|" in reason else reason      # 去掉尾部重复的RR
     r = re.sub(r"上截取@([\d.]+)\((\d)\)", r"扫上方流动性\1(双点)", r)
     r = re.sub(r"下截取@([\d.]+)\((\d)\)", r"扫下方流动性\1(双点)", r)
-    r = re.sub(r"转多@[\d.]+", "结构转多", r)
-    r = re.sub(r"转空@[\d.]+", "结构转空", r)
+    r = re.sub(r"转多@[\d.]+", "转多预警", r)
+    r = re.sub(r"转空@[\d.]+", "转空预警", r)
     r = r.replace("回踩收阳", "回踩企稳").replace("回踩收阴", "回踩走弱").replace("放量触发", "放量确认")
     r = r.replace("回踩 → 回踩走弱", "回踩走弱").replace("回踩 → 回踩企稳", "回踩企稳").replace("回踩 → 放量确认", "回踩放量确认")
     return r.strip().strip("→ ").replace(" → ", " → ")
@@ -164,7 +164,7 @@ def why_no_signal(ee):
     if "sweep" not in st:
         return "卡② 截取: 本段(上次反向结构破坏之后)无顺势截取, 或未达双点"
     if not st.get("turn"):
-        return "卡③ 转势: 15m 无「晚于截取」的同向 CHoCH"
+        return "卡③ 反转预警: 15m 无「晚于截取」的同向 CHoCH"
     r = st.get("retrace") or {}
     if not r.get("in_fvg"):
         return "卡④ 回踩: 价格尚未触及 15m 顺势 FVG"
@@ -291,7 +291,9 @@ def fetch_candles(client, inst_id, limit=300, tf=None):
 
 def get_htf_trend(client, inst_id, candles_base, htf="4H"):
     """大级别趋势 = 【结构方向】(课程原文: 趋势看截取/BOS 的方向, 不是"相对几根K线涨跌")
-    用高一级周期的结构状态机方向 se.trend(BOS确认 / CHoCH翻转); 判不出 → 返回 None(不开单)
+    用高一级周期的结构状态机方向 se.trend; 判不出 → 返回 None(不开单)
+    ★口径(2026-10-03 用户裁定): CHoCH 的语义是【反转预警】(市场"可能"反转, 不是一定反转);
+      当前实现仍是 CHoCH 即时翻转 trend —— 是否改为"预警 + 等反向 BOS 确认"待用户看回测后决定
     2026-10-02 按原文重建: 废弃原先的"最新收盘 vs 20根前收盘"两点比价, 以及 1H 斜率回退"""
     try:
         c = fetch_candles(client, inst_id, limit=200, tf=htf)
@@ -648,7 +650,7 @@ def run_once():
                 se, le = StructureEngine(), LiquidityEngine()
                 se.process(candles); le.process(candles)
                 htf, htf_src = get_htf_trend(client, inst_id, candles, htf=prof.get("htf", "4H"))
-                # 小级别(下一级): 课程C1"截取后切小级别看转势/回踩" → 转势与FVG都在此级别判定
+                # 小级别(下一级): 课程C1"截取后切小级别看反转预警/回踩" → 反转预警与FVG都在此级别判定
                 ltf_se = ltf_le = ltf_candles = None
                 _ltf = prof.get("ltf")
                 if _ltf:
