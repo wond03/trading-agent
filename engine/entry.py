@@ -161,49 +161,6 @@ class EntryEngine:
             return EntrySignal("short", px, sl, tp,
                                f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, grade, sweep_pts)
 
-    # ---------- B级观察信号(埋伏提示: 截取+回踩到位, 不要求转势) ----------
-    def __init_watch(self):
-        if not hasattr(self, "_watch_seen"):
-            self._watch_seen = set()
-
-    def evaluate_watch(self, candles, se, le, htf_trend, bar_i=None):
-        """B级机会观察: 已有顺势截取 + 价格回踩到位, 但转势尚未确认
-        用途: 提前提示"机会在酝酿", 转势一旦出现即升级为A级信号"""
-        self.__init_watch()
-        i = bar_i if bar_i is not None else len(candles) - 1
-        recent = [s for s in le.sweeps if 0 <= i - s[0] <= C.SWEEP_WINDOW]
-        same = [s for s in recent if (htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up")]
-        if not same:
-            return None
-        sweep = same[-1]
-        # 若已出现顺势转势 → 归A级路径处理, 此处不报
-        turns = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down", "BOS_up", "BOS_down")]
-        if any((htf_trend == "up" and e[1] in ("CHoCH_up", "BOS_up")) or
-               (htf_trend == "down" and e[1] in ("CHoCH_down", "BOS_down")) for e in turns):
-            return None
-        # 回踩到位判断
-        post_high = max(c.high for c in candles[sweep[0]: i + 1])
-        post_low = min(c.low for c in candles[sweep[0]: i + 1])
-        rng = post_high - post_low
-        if rng <= 0:
-            return None
-        px = candles[i].close
-        fibs = ([post_high - rng * f for f in C.RETRACE_FIBS] if htf_trend == "up"
-                else [post_low + rng * f for f in C.RETRACE_FIBS])
-        in_retrace = any(abs(px - f) / rng < 0.25 for f in fibs)
-        in_fvg = any((f["kind"] == ("bull" if htf_trend == "up" else "bear"))
-                     and f["bottom"] <= px <= f["top"] for f in le.fvgs)
-        if not in_fvg:
-            return None
-        fp = f"WATCH|{htf_trend}|{round(sweep[2] / 10) * 10}"
-        if fp in self._watch_seen:
-            return None
-        self._watch_seen.add(fp)
-        return {"type": "watch", "direction": htf_trend, "px": px,
-                "sweep_level": sweep[2], "sweep_pts": sweep[3],
-                "in_fvg": in_fvg, "in_retrace": in_retrace,
-                "gap_bars": i - sweep[0]}
-
     # ---------- 模型2: 双蜡烛真假突破 (规则C3, CRT核心) ----------
     def double_candle_breakout(self, candles, i=None):
         """右侧K实体收过左侧高点=真突破(延续); 仅影线刺破收回=假突破(反转)"""
