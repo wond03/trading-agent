@@ -135,10 +135,17 @@ class EntryEngine:
         if not trigger:
             return None
 
-        # 生成信号 (2026-10-02 用户裁定): SL 挂【入场所用 FVG 的外沿】(不再用结构极值+ATR缓冲);
-        #   TP 固定 1:2 (课程原文 BV1H8cuzmEbr[037min]「止盈的点位你就抓一比二」)
+        # 生成信号: SL = 【入场所用 FVG 的那三根K线的极值】(2026-10-03 用户裁定 C —— **不是** FVG 区间边界;
+        #   即取这三根K线的最低点(多单)/最高点(空单)); TP 固定 1:2 (课程 BV1H8cuzmEbr[037min]「止盈就抓一比二」)
+        _fvg_lo = _fvg_hi = None
+        if _fvg_hit is not None and ltf_candles:
+            _fi = _fvg_hit.get("idx")
+            _tri = ltf_candles[max(0, _fi - 2): _fi + 1] if isinstance(_fi, int) else []
+            if _tri:
+                _fvg_lo = min(c.low for c in _tri)
+                _fvg_hi = max(c.high for c in _tri)
         if turn_dir == "up":
-            sl = _fvg_hit["bottom"] if _fvg_hit else sweep_price
+            sl = _fvg_lo if _fvg_lo is not None else sweep_price
             risk = px - sl
             if risk <= 0:
                 return None
@@ -148,7 +155,7 @@ class EntryEngine:
             return EntrySignal("long", px, sl, tp,
                                f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, sweep_pts)
         else:
-            sl = _fvg_hit["top"] if _fvg_hit else sweep_price
+            sl = _fvg_hi if _fvg_hi is not None else sweep_price
             risk = sl - px
             if risk <= 0:
                 return None
