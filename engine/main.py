@@ -470,7 +470,37 @@ def run_once():
                            f"> **盈亏** {_rp:+.2f}U（交易所实现盈亏）")
         for _k, _sz in _lp.items():
             if _sz > 0 and _k not in _state_keys:
-                add("巡检", f"⚠️ **交易所端游离持仓** {_k[0]} {_k[1]} {_sz} — 引擎未记录，请核对")
+                # ★接管游离持仓(2026-10-02 用户裁定A): 交易所持仓存在但本地无记录 → 按交易所均价重建并补挂TP/SL
+                _ins, _psd = _k[0], _k[1]
+                _nmx = "BTC" if "BTC" in _ins else "黄金"
+                _dirx = "long" if _psd == "long" else "short"
+                _levx = C.INST_LEVER.get(_ins, C.LEVERAGE_FIXED)
+                _tdx = C.SYMBOLS.get(_ins, {}).get("td_mode", "isolated")
+                try:
+                    _pd = next((x for x in (client.get_positions(inst_id=_ins).get("data") or [])
+                                if x.get("posSide") == _psd and float(x.get("pos") or 0) > 0), {})
+                except Exception:
+                    _pd = {}
+                _epx = float(_pd.get("avgPx") or _pd.get("markPx") or 0)
+                if _epx <= 0:
+                    add("巡检", f"⚠️ **交易所端游离持仓** {_ins} {_psd} {_sz} — 取不到开仓均价，未接管，请核对")
+                    continue
+                # 100x 下任何结构止损都会被爆仓线覆盖 → 沿用系统一贯口径: 爆仓线内保命止损
+                _slx, _lqx = liquidation_sl(_epx, _dirx, leverage=_levx)
+                _rk = abs(_epx - _slx)
+                _tpx = _epx + _rk * C.RR_MIN_GROWTH if _dirx == "long" else _epx - _rk * C.RR_MIN_GROWTH
+                _np = {"inst": _ins, "direction": _dirx, "entry": round(_epx, 4), "sl": round(_slx, 4),
+                       "tp": round(_tpx, 4), "size": _sz, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
+                       "leverage": _levx, "profile": next(iter(PROFILES)), "grade": "接管",
+                       "run_id": state["last_run_ts"], "opened": int(time.time()), "adopted": True}
+                _np.update(_place_exchange_tpsl(client, _ins, _psd, _sz, _tdx, _tpx, _slx))
+                state["positions"].append(_np)
+                _erlx = _np.get("err") or []
+                print(f"[接管] {_ins} {_psd} {_sz}@{_epx} TP={_tpx} SL={_slx} err={_erlx}")
+                add("巡检", f"🛡️ **接管交易所游离持仓 · {_nmx} {_dirx.upper()}**\n"
+                             f"> {_sz}张 @{_epx:,.1f}（交易所均价）· 杠杆 {_levx}x\n"
+                             f"> 已补挂 止盈 {fmt_price(_tpx)} / 止损 {fmt_price(_slx)}"
+                             + ("" if not _erlx else f"\n> ❌ 挂单失败 {'；'.join(_erlx)}"))
         # 顺带清理"无持仓"的孤立止盈/止损挂单
         try:
             for _a in (client.get_algo_pending().get("data") or []):
