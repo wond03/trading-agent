@@ -57,7 +57,10 @@ class OkxClient:
         for x in reversed(d["data"]):
             if len(x) > 8 and str(x[8]) != "1":
                 continue                      # 丢弃未收盘K线(confirm=0)
-            out.append(Candle(int(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])))
+            _ts = int(x[0])
+            if _ts > 1_000_000_000_000:       # ★OKX 返回毫秒 → 统一成【秒】,
+                _ts //= 1000                  #   与 Gate 备用源/回测缓存口径一致(2026-10-03)
+            out.append(Candle(_ts, float(x[1]), float(x[2]), float(x[3]), float(x[4]), float(x[5])))
         return out
 
     # ---------- 杠杆设置 (100倍必须显式设置) ----------
