@@ -49,6 +49,7 @@ TRUE_BREAK_BY_CLOSE = True    # 实体收过=真突破, 影线刺破收回=截�
 # ---------- 入场模板 (模块C) ----------
 ENTRY_STEPS = ["htf_trend", "sweep", "turn", "retrace", "trigger"]  # 五步流程(规则C1)
 GATE_NO_SWEEP_NO_TRADE = True  # 总开关: 无截取或无转=不开单(规则C2)
+TURN_WINDOW_LTF = 12          # 小级别转势回溯窗口(根). 课程C1: 截取后"切小级别等转"(BV1H8cuzmEe5) → 最新CHoCH落在近此根数内算转势
 RETRACE_FIBS = [0.382, 0.5, 0.618]   # 回踩分批位(规则C6)
 FIB_TARGET_MAP = {            # 目标映射(规则C7, 两集口径不一, 取保守口径, 待回测统一)
     0.618: 1.272,
