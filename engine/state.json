@@ -1,15 +1,35 @@
 {
- "positions": [],
+ "positions": [
+  {
+   "inst": "XAU-USDT-SWAP",
+   "direction": "short",
+   "entry": 4205.9,
+   "sl": 4260.499999999999,
+   "tp": 4035.9000000000015,
+   "size": 60.0,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 50,
+   "profile": "4-1-15",
+   "run_id": 1790974261.8994925,
+   "opened": 1790974265,
+   "tp_algo_id": "3975256174231928832",
+   "sl_algo_id": "3975256180238172160",
+   "err": [],
+   "liq_px": 4245.340870856012
+  }
+ ],
  "daily": {
   "date": "2026-10-03",
-  "trades": 0,
+  "trades": 1,
   "by_profile": {
-   "4-1-15": 0
+   "4-1-15": 1
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1790973051.4480019,
- "run_count_today": 19,
+ "last_run_ts": 1790974261.8994925,
+ "run_count_today": 20,
  "history": [
   {
    "type": "signal",
@@ -75,6 +95,12 @@
    "entry": 84907.47,
    "exit": 86741.12,
    "detail": "[4-1-15] BTC LONG +10.82U"
+  },
+  {
+   "type": "signal",
+   "ts": 1790974266.4911282,
+   "profile": "4-1-15",
+   "detail": "黄金做空 · 进4,145 损4,200 标4,036 · RR1:2"
   }
  ],
  "pushed_signals": [
@@ -84,7 +110,8 @@
   "4H+1H|BTC-USDT-SWAP|long|83180",
   "4H+1H|XAU-USDT-SWAP|long|4150",
   "4H+15m|XAU-USDT-SWAP|long|4180",
-  "4-1-15|XAU-USDT-SWAP|long|4150"
+  "4-1-15|XAU-USDT-SWAP|long|4150",
+  "4-1-15|XAU-USDT-SWAP|short|4200"
  ],
  "daily_report_date": "2026-10-02",
  "market_snapshot": [
