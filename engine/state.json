@@ -18,25 +18,6 @@
    "sl_algo_id": "3975256180238172160",
    "err": [],
    "liq_px": 4245.340870856012
-  },
-  {
-   "inst": "BTC-USDT-SWAP",
-   "direction": "long",
-   "entry": 84520.1,
-   "sl": 84436.8,
-   "tp": 84686.70000000001,
-   "size": 0.59,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 100,
-   "profile": "4-1-15",
-   "run_id": 1790983848.2919278,
-   "opened": 1790983852,
-   "tp_algo_id": "3975577864933588992",
-   "sl_algo_id": "3975577874295275520",
-   "err": [],
-   "liq_px": 84053.14812154695
   }
  ],
  "daily": {
@@ -47,8 +28,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1790983848.2919278,
- "run_count_today": 32,
+ "last_run_ts": 1790984773.8652008,
+ "run_count_today": 33,
  "history": [
   {
    "type": "signal",
@@ -126,6 +107,15 @@
    "ts": 1790983853.8379526,
    "profile": "4-1-15",
    "detail": "BTC做多 · 进84,520 损84,437 标84,687 · RR1:2"
+  },
+  {
+   "type": "exit",
+   "ts": 1790984776.2183645,
+   "profile": "4-1-15",
+   "pnl": -1.21,
+   "entry": 84520.1,
+   "exit": 84400.0,
+   "detail": "[4-1-15] BTC LONG -1.21U(交易所端)"
   }
  ],
  "pushed_signals": [
