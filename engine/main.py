@@ -332,6 +332,7 @@ def run_once():
                 reports.append(f"⚠️ **{_nm} {_pl}** 挂单超30分钟未成交，已撤")
             else:
                 _keep.append(pe)
+                reports.append(f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
         state["pending_entries"] = _keep
 
     for inst_id, sym_cfg in C.SYMBOLS.items():
