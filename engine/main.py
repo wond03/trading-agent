@@ -333,7 +333,7 @@ def _last_realized(client, inst_id, pos_side):
 
 def run_once():
     state = load_state()
-    print(f"[暗夜猎手 v3] 方案={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=双方案并行+开仓当根不判出场")
+    print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=单链4-1-15+开仓当根不判出场")
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
     last = state.get("last_run_ts", 0)
@@ -347,6 +347,14 @@ def run_once():
         state["run_count_today"] = 0
     state["daily"].setdefault("by_profile", {pn: 0 for pn in PROFILES})
     state["run_count_today"] = state.get("run_count_today", 0) + 1
+    # ---- 兼容: 周期链改名(旧 4H+1H/4H+15m → 4-1-15), 单链下自动迁移历史 state, 防旧持仓失管 ----
+    if len(PROFILES) == 1:
+        _only = next(iter(PROFILES))
+        for _p in list(state.get("positions", [])) + list(state.get("pending_entries", [])):
+            if _p.get("profile") not in PROFILES:
+                _p["profile"] = _only
+        _bp = state["daily"].get("by_profile", {})
+        state["daily"]["by_profile"] = {_only: sum(v for v in _bp.values() if isinstance(v, int))}
 
     client = OkxClient(simulated=True)
     reports = []
