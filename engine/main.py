@@ -19,10 +19,10 @@ CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "10000"))   # 账户资金(可
 
 # ---------- 双方案配置 ----------
 PROFILES = getattr(C, "STRATEGY_PROFILES", {
-    "4H+1H": {"label": "4+1", "base_tf": C.BASE_TF, "htf": "4H",
-              "swing_left": 2, "swing_right": 2, "sweep_window": 20}})
+    "4-1-15": {"label": "4-1-15", "base_tf": C.BASE_TF, "htf": "4H",
+               "swing_left": 2, "swing_right": 2}})
 # 引擎模块运行时读取 config 全局, 故按方案临时切换这组参数
-_PROFILE_KEYS = ("BASE_TF", "SWING_LEFT", "SWING_RIGHT", "SWEEP_WINDOW")
+_PROFILE_KEYS = ("BASE_TF", "SWING_LEFT", "SWING_RIGHT")
 
 @contextlib.contextmanager
 def profile_ctx(prof):
@@ -30,7 +30,6 @@ def profile_ctx(prof):
     C.BASE_TF = prof["base_tf"]
     C.SWING_LEFT = prof.get("swing_left", 2)
     C.SWING_RIGHT = prof.get("swing_right", 2)
-    C.SWEEP_WINDOW = prof.get("sweep_window", 20)
     try:
         yield
     finally:
@@ -689,22 +688,6 @@ def run_once():
                     # 记录指纹(去重), 保留最近60条
                     state.setdefault("pushed_signals", []).append(fp)
                     state["pushed_signals"] = state["pushed_signals"][-60:]
-                else:
-                    # ---- B级机会观察(埋伏提示: 截取+回踩到位, 尚未转势) ----
-                    w = ee.evaluate_watch(candles, se, le, htf, bar_i=len(candles) - 1) if C.PUSH_WATCH else None
-                    if w:
-                        wfp = f"WATCH|{pname}|{inst_id}|{w['direction']}|{round(w['sweep_level'] / 10) * 10}"
-                        if wfp not in state.get("pushed_watch", []):
-                            _wnm = "BTC" if "BTC" in inst_id else "黄金"
-                            _wd = "做多" if w["direction"] == "up" else "做空"
-                            add("哨兵", 
-                                f"👀 **`{plabel}` B级机会观察 · {_wnm}{_wd}**\n\n"
-                                f"**已完成** 扫过流动性 {fmt_price(w['sweep_level'])}（{w['sweep_pts']}点），价格回踩到位\n"
-                                f"**等什么** 等『实体突破结构』的转势确认 → 确认后升级为 A 级信号\n"
-                                f"**现价** {fmt_price(w['px'])}")
-                            state.setdefault("pushed_watch", []).append(wfp)
-                            state["pushed_watch"] = state["pushed_watch"][-60:]
-
                 # ---- 持仓管理 (出场引擎; 按方案过滤) ----
                 for p in list(state["positions"]):
                     if p["inst"] != inst_id or p.get("profile", "4H+1H") != pname:
