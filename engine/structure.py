@@ -44,6 +44,10 @@ def find_swings(candles, left=None, right=None):
             dedup.append(s)
     return dedup
 
+# ★语义口径(2026-10-03 用户裁定):
+#   BOS   = 实体收盘越过前高/前低 → 结构【延续】(顺势)
+#   CHoCH = 实体收盘打穿反向极值   → 结构【反转预警】(逆势; 只是"可能"反转, 不是一定反转)
+#   ★当前实现: CHoCH 仍即时翻转 self.trend(是否改为"预警+等反向BOS确认"待用户看回测后决定)
 class StructureEngine:
     """结构状态机: 逐根喂K线, 输出事件(BOS/CHoCH/MSS)与当前趋势
     核心二元判定(规则A11): 影线刺破=流动性截取(不确认结构); 实体收盘越过=真突破(确认结构)"""
@@ -98,9 +102,10 @@ class StructureEngine:
         #   → 实体经济收过 = 真突破 (BOS/CHoCH); 影线刺破 = 假突破 (截取流动性)。
         #   原「盘整区内突破不确认结构」(consolidation_break_ignored) 会把**实体**突破也否掉,
         #   与原文冲突(实测: 10-02 01:00 收盘 84,908 越过 84,093 被吞掉, 结构转多迟到约10小时), 已删除。
+        #   ★注: 这里的"实体收过"= BOS(顺势延续) ; 逆势的实体收过 = CHoCH = 反转预警(非确认)。
         if broke_up_close:
             if self.trend == "down":
-                self.events.append((i, "CHoCH_up", sh_p))       # 规则A2: 收过最后高点 → 由降转升
+                self.events.append((i, "CHoCH_up", sh_p))       # 规则A2: 收过最后高点(反转预警↑)
                 self.trend = "up"
             else:
                 self.events.append((i, "BOS_up", sh_p))          # 规则A1
@@ -112,7 +117,7 @@ class StructureEngine:
             self.events.append((i, "sweep_up_liquidity", sh_p))      # 影线扫高 = 上方流动性截取(假突破)
         if broke_dn_close:
             if self.trend == "up":
-                self.events.append((i, "CHoCH_down", sl_p))      # 规则A2: 转空
+                self.events.append((i, "CHoCH_down", sl_p))      # 规则A2: 收破最后低点(反转预警↓)
                 self.trend = "down"
             else:
                 self.events.append((i, "BOS_down", sl_p))
