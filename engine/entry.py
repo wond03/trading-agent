@@ -142,17 +142,15 @@ class EntryEngine:
             return None
         self.last_signal_bar = i
 
-        # 生成信号: SL在截取极值外+缓冲(规则F3); TP=斐波扩展目标(规则C7) 且至少满足RR门槛(规则E12)
+        # 生成信号 (用户裁定2026-10-02): SL=截取极值外+缓冲(规则F3); TP=固定 1:2
+        #   课程原文 BV1H8cuzmEbr [037min]「止盈的点位你就抓一比二」(前期发育口径) → 不再用斐波扩展凑目标
         if turn_dir == "up":
             sl = sweep_price - a * C.SL_BUFFER_ATR
             risk = px - sl
-            fib_rng = post_high - sweep_price                 # 反弹段长度
-            tp_ext = sweep_price + fib_rng * 1.272            # 斐波1.272扩展(规则C7)
-            tp_min = px + risk * C.RR_MIN_GROWTH              # RR门槛兜底(规则E12)
-            tp = max(tp_ext, tp_min)
-            rr = (tp - px) / max(risk, 1e-9)
-            if rr < C.RR_MIN_GROWTH:
+            if risk <= 0:
                 return None
+            tp = px + risk * C.RR_MIN_GROWTH                  # 止盈 = 恰好 1:2
+            rr = (tp - px) / risk
             conf = "high" if in_fvg and in_retrace else "normal"
             grade = "A" if (sweep_pts >= 2 and in_fvg and strong) else "B"
             return EntrySignal("long", px, sl, tp,
@@ -160,13 +158,10 @@ class EntryEngine:
         else:
             sl = sweep_price + a * C.SL_BUFFER_ATR
             risk = sl - px
-            fib_rng = sweep_price - post_low
-            tp_ext = sweep_price - fib_rng * 1.272
-            tp_min = px - risk * C.RR_MIN_GROWTH
-            tp = min(tp_ext, tp_min)
-            rr = (px - tp) / max(risk, 1e-9)
-            if rr < C.RR_MIN_GROWTH:
+            if risk <= 0:
                 return None
+            tp = px - risk * C.RR_MIN_GROWTH                  # 止盈 = 恰好 1:2
+            rr = (px - tp) / risk
             conf = "high" if in_fvg and in_retrace else "normal"
             grade = "A" if (sweep_pts >= 2 and in_fvg and strong) else "B"
             return EntrySignal("short", px, sl, tp,
