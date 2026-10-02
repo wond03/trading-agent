@@ -250,22 +250,24 @@ def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
         return max(struct_sl, liq_sl), liq_px      # 多单: 止损取更高的那条(先触发)
     return min(struct_sl, liq_sl), liq_px          # 空单: 取更低的那条
 def _place_exchange_tpsl(client, inst_id, pos_side, sz, td_mode, tp, sl):
-    """把止盈/止损真实挂到交易所, 返回两条 algoId (App持仓页/委托页可见)"""
-    out = {"tp_algo_id": None, "sl_algo_id": None}
-    try:
-        r = client.place_tp_order(inst_id, pos_side, sz, td_mode, tp)
-        out["tp_algo_id"] = ((r.get("data") or [{}])[0] or {}).get("algoId") or None
-        if r.get("code") != "0":
-            print(f"[挂TP失败] {inst_id} {r.get('code')} {r.get('msg')}")
-    except Exception as e:
-        print(f"[挂TP异常] {inst_id} {e}")
-    try:
-        r = client.place_sl_order(inst_id, pos_side, sz, td_mode, sl)
-        out["sl_algo_id"] = ((r.get("data") or [{}])[0] or {}).get("algoId") or None
-        if r.get("code") != "0":
-            print(f"[挂SL失败] {inst_id} {r.get('code')} {r.get('msg')}")
-    except Exception as e:
-        print(f"[挂SL异常] {inst_id} {e}")
+    """把止盈/止损真实挂到交易所, 返回 algoId
+    ★严格校验(2026-10-02): 必须 code=0 且 sCode=0 且 algoId 非空 才算挂上; 否则不写id并记入err(防"假成功")
+    返回 {"tp_algo_id":.., "sl_algo_id":.., "err":[...]}"""
+    out = {"tp_algo_id": None, "sl_algo_id": None, "err": []}
+    for key, fn, px in (("tp_algo_id", client.place_tp_order, tp), ("sl_algo_id", client.place_sl_order, sl)):
+        _lb = "TP" if key.startswith("tp") else "SL"
+        try:
+            r = fn(inst_id, pos_side, sz, td_mode, px)
+            dd = ((r.get("data") or [{}])[0] or {})
+            print(f"[挂{_lb}] {inst_id} sz={sz} px={px} code={r.get('code')} sCode={dd.get('sCode')} "
+                  f"msg={r.get('msg') or dd.get('sMsg')} | {json.dumps(r, ensure_ascii=False)[:300]}")
+            if r.get("code") == "0" and dd.get("sCode") == "0" and dd.get("algoId"):
+                out[key] = dd.get("algoId")
+            else:
+                out["err"].append(f"{_lb}[{dd.get('sCode') or r.get('code')}:{dd.get('sMsg') or r.get('msg')}]")
+        except Exception as e:
+            out["err"].append(f"{_lb}[exc:{e}]")
+            print(f"[挂{_lb}异常] {inst_id} {e}")
     return out
 
 def _cancel_exchange_tpsl(client, inst_id, p):
@@ -405,9 +407,11 @@ def run_once():
                 state["daily"].setdefault("by_profile", {})
                 _pf = pe.get("profile", "4H+1H")
                 state["daily"]["by_profile"][_pf] = state["daily"]["by_profile"].get(_pf, 0) + 1
+                _erl = _po.get("err") or []
+                _tgt = (f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}" if not _erl else
+                        f"> ❌ 交易所挂单**未挂上** {'；'.join(_erl)}（本地记录 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}，请手动确认）")
                 add("铁律", f"✅ **挂单成交建仓 · {_nm} {_pl}**\n"
-                               f"> 成交 {_fl}张 @{_avg:,.1f}\n"
-                               f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}")
+                               f"> 成交 {_fl}张 @{_avg:,.1f}\n" + _tgt)
             elif _st == "canceled":
                 add("巡检", f"⚠️ **挂单已取消 · {_nm} {_pl}**（交易所端撤销，未成交）\n"
                                f"> {pe.get('size')}张 · 信号进场 {fmt_price(pe.get('signal_entry', 0))}")
@@ -596,8 +600,10 @@ def run_once():
                                     # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
                                     posobj.update(_place_exchange_tpsl(client, inst_id, _ps, fl, _td, sig.tp, sl_fill))
                                     state["positions"].append(posobj)
-                                    line += (f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
-                                             f"\n> 🎯 交易所已挂 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}")
+                                    _erl2 = posobj.get("err") or []
+                                    line += (f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}" + (
+                                             f"\n> 🎯 交易所已挂 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}" if not _erl2 else
+                                             f"\n> ❌ 交易所挂单**未挂上** {'；'.join(_erl2)}（本地记录 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}，请手动确认）"))
                                     state["daily"]["trades"] += 1
                                     state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
                                     _opened = True
@@ -660,10 +666,11 @@ def run_once():
                         print(f"[新仓位保护] {inst_id} 本轮新建, 跳过出场判断(下轮起管理)")
                         continue
                     # ★ 自愈: 确保交易所端止盈/止损挂单存在(缺哪条补哪条)
+                    #   ★严格校验: 必须 code=0 且 sCode=0 且拿到 algoId 才算成功; 否则绝不推"已挂"
                     if not DRY_RUN:
                         _psh = "long" if p["direction"] == "long" else "short"
                         _tdh = sym_cfg.get("td_mode", "isolated")
-                        _fixed = []
+                        _fixed, _failed = [], []
                         try:
                             _live = client.algo_ids(inst_id)
                         except Exception:
@@ -671,12 +678,29 @@ def run_once():
                         if _live is not None:
                             if p.get("tp_algo_id") not in _live:
                                 _r = client.place_tp_order(inst_id, _psh, p["size"], _tdh, p["tp"])
-                                p["tp_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId"); _fixed.append("止盈")
+                                _dd = ((_r.get("data") or [{}])[0] or {})
+                                print(f"[补挂TP] {inst_id} sz={p['size']} px={p['tp']} code={_r.get('code')} sCode={_dd.get('sCode')} msg={_r.get('msg') or _dd.get('sMsg')} | {json.dumps(_r, ensure_ascii=False)[:300]}")
+                                if _r.get("code") == "0" and _dd.get("sCode") == "0" and _dd.get("algoId"):
+                                    p["tp_algo_id"] = _dd.get("algoId"); _fixed.append("止盈")
+                                else:
+                                    _failed.append(f"止盈[{_dd.get('sCode') or _r.get('code')}:{_dd.get('sMsg') or _r.get('msg')}]")
                             if p.get("sl_algo_id") not in _live:
                                 _r = client.place_sl_order(inst_id, _psh, p["size"], _tdh, p["sl"])
-                                p["sl_algo_id"] = ((_r.get("data") or [{}])[0] or {}).get("algoId"); _fixed.append("止损")
+                                _dd = ((_r.get("data") or [{}])[0] or {})
+                                print(f"[补挂SL] {inst_id} sz={p['size']} px={p['sl']} code={_r.get('code')} sCode={_dd.get('sCode')} msg={_r.get('msg') or _dd.get('sMsg')} | {json.dumps(_r, ensure_ascii=False)[:300]}")
+                                if _r.get("code") == "0" and _dd.get("sCode") == "0" and _dd.get("algoId"):
+                                    p["sl_algo_id"] = _dd.get("algoId"); _fixed.append("止损")
+                                else:
+                                    _failed.append(f"止损[{_dd.get('sCode') or _r.get('code')}:{_dd.get('sMsg') or _r.get('msg')}]")
                         if _fixed:
-                            add("巡检", f"🛡️ **`{plabel}` {inst_id}** 补挂交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
+                            add("巡检", f"🛡️ **`{plabel}` {inst_id}** 已补挂交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
+                        if _failed:
+                            _fsig = "|".join(_failed)
+                            if p.get("tpsl_fail") != _fsig:
+                                p["tpsl_fail"] = _fsig
+                                add("巡检", f"❌ **`{plabel}` {inst_id}** 交易所挂单**失败**：{'；'.join(_failed)}\n> 本地记录 止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}，但交易所端无此挂单，请手动确认")
+                        else:
+                            p.pop("tpsl_fail", None)
                     pos = Position(p["direction"], p["entry"], p["sl"], p["tp"],
                                    size=p.get("ratio", 1.0), opened_bar=0)
                     pos.risk_free = p.get("risk_free", False)
