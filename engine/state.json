@@ -16,19 +16,36 @@
    "opened": 1790897410,
    "tp_algo_id": "3972731460183953408",
    "sl_algo_id": "3972731467599482880"
+  },
+  {
+   "inst": "BTC-USDT-SWAP",
+   "direction": "long",
+   "entry": 84748.13,
+   "sl": 84578.63374,
+   "tp": 85444.7314285714,
+   "size": 0.59,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 100,
+   "profile": "4H+15m",
+   "run_id": 1790899811.1228833,
+   "opened": 1790899812,
+   "tp_algo_id": "3972757947482148864",
+   "sl_algo_id": "3972757952548868096"
   }
  ],
  "daily": {
   "date": "2026-10-02",
-  "trades": 2,
+  "trades": 3,
   "by_profile": {
    "4H+1H": 2,
-   "4H+15m": 0
+   "4H+15m": 1
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 0,
- "run_count_today": 28,
+ "last_run_ts": 1790899811.1228833,
+ "run_count_today": 29,
  "history": [
   {
    "type": "signal",
@@ -43,15 +60,23 @@
    "profile": "4H+1H",
    "grade": "B",
    "detail": "黄金做多 · 进4,186 损4,136 标4,201 · RR1:0"
+  },
+  {
+   "type": "signal",
+   "ts": 1790899813.3230789,
+   "profile": "4H+15m",
+   "grade": "B",
+   "detail": "BTC做多 · 进84,780 损84,610 标85,445 · RR1:4"
   }
  ],
  "pushed_signals": [
-  "4H+1H|BTC-USDT-SWAP|long|83170"
+  "4H+1H|BTC-USDT-SWAP|long|83170",
+  "4H+15m|BTC-USDT-SWAP|long|84450"
  ],
  "daily_report_date": "2026-10-02",
  "market_snapshot": [
   "· `4+1` BTC: 上涨趋势 | 活跃FVG 84,063~84,385 | 最近截取 扫上84,368(1点)",
-  "· `4+15` BTC: 下跌趋势 | 活跃FVG 84,458~84,739 | 最近截取 扫上84,823(2点)",
+  "· `4+15` BTC: 下跌趋势 | 活跃FVG 84,458~84,739 | 最近截取 扫上84,823(1点)",
   "· `4+1` 黄金: 上涨趋势 | 活跃FVG 4,172~4,185 | 最近截取 扫上4,167(1点)",
   "· `4+15` 黄金: 上涨趋势 | 活跃FVG 4,182~4,185 | 最近截取 扫上4,184(2点)"
  ],
