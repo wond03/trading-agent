@@ -20,11 +20,11 @@ class Position:
                 f"TP={self.tp:.1f} size={self.size:.0%} risk_free={self.risk_free}")
 
 class ExitEngine:
-    """止盈三原则 (规则D1):
-    ①出量(成交量>均量*2) → 上保本 (2026-10-02 用户裁定: 只上保护, 不主动减仓)
-    ②趋势转换(反向CHoCH) → 立即出场, 不论盈亏
-    ③到TP → 止盈
-    附加: 摸前高/前低→上保本(D2); 突破结构位→SL移到被突破位(D4)"""
+    """出场规则:
+    ①趋势转换(反向CHoCH) → 立即出场, 不论盈亏 (规则D1-②)
+    ②到 TP → 止盈 (规则D1-③)
+    附加: 摸前高/前低→上保本(D2); 突破结构位→SL移到被突破位(D4)
+    说明: 原文的"出量止盈"(D1-①) 2026-10-03 用户裁定不做"""
 
     def manage(self, pos, candles, se, le, i=None):
         """返回动作列表: ('EXIT'|'PARTIAL_TP'|'MOVE_SL'|'HOLD', 说明)"""
@@ -57,15 +57,7 @@ class ExitEngine:
             actions.append(("EXIT", "趋势转换CHoCH_up, 立即出场不论盈亏 (规则D1-②)", bar.close))
             return actions
 
-        # ---- 规则D1-①: 出量 → 上保本 (用户裁定2026-10-02: 改为不主动减仓) ----
-        #   课程 BV1H8cuzmEe5[004min]「一旦出量就要吃」; BV1w8cuzmEFY[013min]「上保护之前你都要吃」
-        #   → 口径: 出量只把止损移到成本价(上保护), 仓位不动; 出场交给 TP(D1-③) / 趋势转换(D1-②)
-        vols = [c.vol for c in candles[max(0, i-20):i]]
-        if vols and bar.vol > (sum(vols)/len(vols)) * C.VOLUME_SPIKE_MULT:
-            if not pos.risk_free:
-                pos.sl = max(pos.sl, pos.entry) if pos.direction == "long" else min(pos.sl, pos.entry)
-                pos.risk_free = True
-                actions.append(("MOVE_SL", f"出量(vol={bar.vol:.0f}) → 止损上移保本 (规则D1-①)"))
+        # ---- 规则D1-① "出量止盈": 2026-10-03 用户裁定【不做】(原文只讲"出量要吃", 没给任何可量化定义) ----
 
         # ---- 规则D2: 摸前高/前低 → 上保本 ----
         if not pos.risk_free:
