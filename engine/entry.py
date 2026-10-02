@@ -44,12 +44,15 @@ class EntryEngine:
         # ② 找截取 (规则C2: 无截取不开单; B5: 1H需双点)
         #    双点(原文 BV1w8cuzmEqw[104-105min]「一小时要双点…卡了就卡在一起了, 那种都不能算」)
         #    = 顺势方向上, 有 >=2 根【不同K线】各扫掉过一个点(不是"同一根K线扫2个点")
-        recent_sweeps = [s for s in le.sweeps if 0 <= i - s[0] <= C.SWEEP_WINDOW]
-        same_dir = [s for s in recent_sweeps
-                    if (htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up")]
+        #    ★2026-10-02 去掉根数时效, 改为"以结构为准": 只看【当前这一段】(= 上一次反向结构破坏之后)
+        #      原文 BV1w8cuzmEcs[034min]「再截取的话…前面这两个就彻底失效了」→ 新结构出现, 旧截取作废
+        _opp = ("BOS_down", "CHoCH_down") if htf_trend == "up" else ("BOS_up", "CHoCH_up")
+        _seg = max([e[0] for e in se.events if e[1] in _opp], default=-1)   # 当前段起点(上次反向结构破坏)
+        same_dir = [s for s in le.sweeps if s[0] > _seg
+                    and ((htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up"))]
         if not same_dir:
             return None
-        _bars_hit = sorted({s[0] for s in same_dir})            # 发生过顺势截取的不同K线
+        _bars_hit = sorted({s[0] for s in same_dir})            # 本段内发生过顺势截取的不同K线
         steps["sweep"] = same_dir
         if C.SWEEP_DOUBLE_POINT_H1 and len(_bars_hit) < 2:
             return None                                         # 1H 必须双点
@@ -58,23 +61,19 @@ class EntryEngine:
         sweep_ts = candles[sweep[0]].ts                         # ★截取发生的时间(转势必须晚于它)
 
         # ③ 转势 (原文 BV1H8cuzmEe5[003/005min]「一小时找到拌饭或双点, 进五分钟看结构」「切小级别再等转」)
-        #    → 转势在【小级别(15m)】看; 只认 CHoCH(BOS不算); 且必须【发生在截取之后】
+        #    → 转势在【小级别(15m)】看; 只认 CHoCH(BOS不算); 必须【晚于截取】
+        #    ★2026-10-02 去掉根数时效: 只看【最近一次】CHoCH —— 结构最后转向哪, 就以哪为准
         turn_dir, turn_bar, turn_ts = None, None, None
         if ltf_se is not None and ltf_candles:
-            _li = getattr(ltf_se, "last_idx", len(ltf_candles) - 1)
-            for e in reversed(ltf_se.events):
-                if e[1] not in ("CHoCH_up", "CHoCH_down"):
-                    continue
-                if e[0] < _li - C.TURN_WINDOW_LTF:
-                    break                                       # 更老的也不用看了
-                if not (0 <= e[0] < len(ltf_candles)):
-                    break
-                if ltf_candles[e[0]].ts <= sweep_ts:
-                    break                                       # ★早于截取 → 不算(更老的更早)
-                _d = "up" if e[1] == "CHoCH_up" else "down"
-                if _d == htf_trend:
-                    turn_dir, turn_bar, turn_ts = _d, e[0], ltf_candles[e[0]].ts
-                    break
+            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
+            if _lx:
+                _last = _lx[-1]
+                if 0 <= _last[0] < len(ltf_candles):
+                    _t = ltf_candles[_last[0]].ts
+                    if _t > sweep_ts:                           # 必须晚于截取
+                        _d = "up" if _last[1] == "CHoCH_up" else "down"
+                        if _d == htf_trend:
+                            turn_dir, turn_bar, turn_ts = _d, _last[0], _t
         sweep_price = sweep[2]                     # 被扫的极端价
         steps["turn"] = turn_dir
         if not turn_dir:
@@ -125,20 +124,14 @@ class EntryEngine:
         #    → 回踩到位【之后】小级别再出现的同向 CHoCH; 取不到小级别数据就不做(不再自创回退)
         trigger, strong = None, False
         if ltf_se is not None and ltf_candles:
-            _li = getattr(ltf_se, "last_idx", len(ltf_candles) - 1)
-            for e in reversed(ltf_se.events):
-                if e[1] not in ("CHoCH_up", "CHoCH_down"):
-                    continue
-                if e[0] < _li - C.TURN_WINDOW_LTF:
-                    break                                       # 更老的也不用看了
-                if not (0 <= e[0] < len(ltf_candles)):
-                    break
-                if ltf_candles[e[0]].ts < retrace_ts:
-                    break                                       # ★早于回踩 → 不算
-                _d = "up" if e[1] == "CHoCH_up" else "down"
-                if _d == turn_dir:
-                    trigger, strong = ("小级别转多" if _d == "up" else "小级别转空"), True
-                    break
+            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
+            if _lx:
+                _last = _lx[-1]                                 # 只看最近一次 CHoCH(去根数时效)
+                if 0 <= _last[0] < len(ltf_candles):
+                    _t = ltf_candles[_last[0]].ts
+                    _d = "up" if _last[1] == "CHoCH_up" else "down"
+                    if _t >= retrace_ts and _d == turn_dir:      # 必须晚于回踩 + 方向一致
+                        trigger, strong = ("小级别转多" if _d == "up" else "小级别转空"), True
         steps["trigger"] = trigger
         if not trigger:
             return None
