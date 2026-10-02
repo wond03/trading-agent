@@ -421,6 +421,14 @@ def run_once():
         for _k, _sz in _lp.items():
             if _sz > 0 and _k not in _state_keys:
                 reports.append(f"⚠️ **交易所端游离持仓** {_k[0]} {_k[1]} {_sz} — 引擎未记录，请核对")
+        # 顺带清理"无持仓"的孤立止盈/止损挂单
+        try:
+            for _a in (client.get_algo_pending().get("data") or []):
+                if _lp.get((_a.get("instId"), _a.get("posSide")), 0) <= 0:
+                    client.cancel_algo(_a.get("instId"), _a.get("algoId"))
+                    print(f"[清理孤立挂单] {_a.get('instId')} {_a.get('algoId')}")
+        except Exception as e:
+            print(f"[孤立挂单清理异常] {e}")
 
     # ---- 同品种同向只留一个仓 (用户规则): 多余同向仓按"等级优先"清理 ----
     if not DRY_RUN:
