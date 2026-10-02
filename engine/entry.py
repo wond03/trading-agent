@@ -21,7 +21,7 @@ class EntrySignal:
 
 class EntryEngine:
     """五步流程状态机 (规则C1):
-    ①大级别定趋势 ②下推一级找截取 ③切小级别看转势 ④等回踩FVG ⑤触发 → 开单
+    ①大级别定趋势 ②下推一级找截取 ③切小级别看反转预警(CHoCH) ④等回踩FVG ⑤触发 → 开单
     总开关(规则C2): 无截取或无转 = 不开单"""
 
     def __init__(self):
@@ -29,9 +29,9 @@ class EntryEngine:
 
     def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
         """返回 EntrySignal 或 None
-        课程原文流程(BV1H8cuzmEe5): ①大级别定趋势 ②下推一级找截取(1H需"双点") ③截取后(切小级别)看转
-                                  ④转了等回踩(踩回FVG) ⑤回踩后切小级别再等转 → 开
-        ★2026-10-02 按原文重建: 转势必须【晚于截取】(用时间比, 非根数); 双点=两根不同K线各扫一点"""
+        课程原文流程(BV1H8cuzmEe5): ①大级别定趋势 ②下推一级找截取(1H需"双点") ③截取后(切小级别)看反转预警
+                                  ④预警后等回踩(踩回FVG) ⑤回踩后切小级别再等一次预警 → 开
+        ★2026-10-02 按原文重建: 反转预警必须【晚于截取】(用时间比, 非根数); 双点=两根不同K线各扫一点"""
         i = bar_i if bar_i is not None else len(candles) - 1
         steps = {}
         self.last_steps = steps   # ★诊断(2026-10-03): 同一个dict对象 → evaluate 返回 None 时,
@@ -61,8 +61,9 @@ class EntryEngine:
         sweep_pts = len(_bars_hit)
         sweep_ts = candles[sweep[0]].ts                         # ★截取发生的时间(转势必须晚于它)
 
-        # ③ 转势 (原文 BV1H8cuzmEe5[003/005min]「一小时找到拌饭或双点, 进五分钟看结构」「切小级别再等转」)
-        #    → 转势在【小级别(15m)】看; 只认 CHoCH(BOS不算); 必须【晚于截取】
+        # ③ 反转预警 (原文 BV1H8cuzmEe5[003/005min]「一小时找到拌饭或双点, 进五分钟看结构」「切小级别再等转」)
+        #    → 在【小级别(15m)】看 CHoCH; 只认 CHoCH(BOS不算); 必须【晚于截取】
+        #      ★语义(2026-10-03 用户): CHoCH = 反转预警(可能反转), 不是一定反转
         #    ★2026-10-02 去掉根数时效: 只看【最近一次】CHoCH —— 结构最后转向哪, 就以哪为准
         turn_dir, turn_bar, turn_ts = None, None, None
         if ltf_se is not None and ltf_candles:
@@ -82,7 +83,7 @@ class EntryEngine:
 
         # ④ 等回踩 (原文 BV1w8cuzmEqw[061min]「一定要有 feg 的区域, 并且在转四位以内」;
         #            BV1w8cuzmErh[048min]「只要在里面, 引线上去什么的没所谓」)
-        #    → 价格【首次】与顺势 FVG 区间发生交集(影线触及即可, 不要求收盘价); 且回踩不得破"转势起点"
+        #    → 价格【首次】与顺势 FVG 区间发生交集(影线触及即可, 不要求收盘价); 且回踩不得破"预警起点"
         post_high = max(c.high for c in candles[sweep[0]:i+1])
         post_low = min(c.low for c in candles[sweep[0]:i+1])
         rng = post_high - post_low
@@ -112,7 +113,7 @@ class EntryEngine:
         # ★校准(2026-10-02 用户裁定): FVG 是入场的唯一必要条件 —— 没踩到FVG就不做
         if not in_fvg:
             return None
-        # 回踩不得破"转势起点"(转势那根小级别K线的极值): 多单看低点 / 空单看高点
+        # 回踩不得破"预警起点"(预警那根小级别K线的极值): 多单看低点 / 空单看高点
         if turn_bar is not None and ltf_candles and 0 <= turn_bar < len(ltf_candles):
             _tb = ltf_candles[turn_bar]
             if turn_dir == "up":
@@ -133,7 +134,7 @@ class EntryEngine:
                     _t = ltf_candles[_last[0]].ts
                     _d = "up" if _last[1] == "CHoCH_up" else "down"
                     if _t >= retrace_ts and _d == turn_dir:      # 必须晚于回踩 + 方向一致
-                        trigger, strong = ("小级别转多" if _d == "up" else "小级别转空"), True
+                        trigger, strong = ("小级别转多预警" if _d == "up" else "小级别转空预警"), True
         steps["trigger"] = trigger
         if not trigger:
             return None
@@ -183,7 +184,7 @@ class EntryEngine:
 
     # ---------- 模型3: MSS 双仓 (规则C5) ----------
     def mss_two_position(self, se, htf_trend):
-        """MSS出现开第一仓(60%) → CHoCH确认转势后回踩补第二仓(40%)"""
+        """MSS出现开第一仓(60%) → CHoCH(反转预警)出现后回踩补第二仓(40%)"""
         ms = [e for e in se.events[-30:] if "CHoCH" in e[1]]
         if not ms:
             return None
