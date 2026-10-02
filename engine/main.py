@@ -725,18 +725,32 @@ def run_once():
                             _sd = "多单" if p["direction"] == "long" else "空单"
                             exit_px = act[2] if len(act) > 2 else p["entry"]
                             _src = "按K线结构"
+                            _closed = True
                             if not DRY_RUN:
                                 # 先撤交易所止盈/止损挂单, 再市价平仓, 并以交易所真实成交价为准
                                 _cancel_exchange_tpsl(client, inst_id, p)
                                 side = "sell" if p["direction"] == "long" else "buy"
                                 resp = client.close_position(inst_id, side, p["size"],
                                                              td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_ps)
-                                _cod = ((resp.get("data") or [{}])[0] or {}).get("ordId")
-                                for _ in range(5):
-                                    _od = (client.get_order(inst_id, _cod).get("data") or [{}])[0]
-                                    if float(_od.get("accFillSz") or 0) > 0 or _od.get("state") in ("filled", "canceled"):
-                                        exit_px = float(_od.get("avgPx") or exit_px); _src = "交易所成交价"; break
-                                    time.sleep(0.8)
+                                _rd = ((resp.get("data") or [{}])[0] or {})
+                                _cod = _rd.get("ordId")
+                                _fill = 0.0
+                                if resp.get("code") == "0" and _rd.get("sCode") == "0" and _cod:
+                                    for _ in range(6):
+                                        _od = (client.get_order(inst_id, _cod).get("data") or [{}])[0]
+                                        _fill = float(_od.get("accFillSz") or 0)
+                                        if _fill > 0 or _od.get("state") in ("filled", "canceled"):
+                                            exit_px = float(_od.get("avgPx") or exit_px); break
+                                        time.sleep(0.8)
+                                if _fill <= 0:
+                                    # ★严格校验(2026-10-02): 未确认成交 → 绝不删本地记录, 下轮重试(防"假平仓"丢仓)
+                                    print(f"[平仓未确认] {inst_id} sz={p['size']} code={resp.get('code')} sCode={_rd.get('sCode')} msg={resp.get('msg') or _rd.get('sMsg')} | {json.dumps(resp, ensure_ascii=False)[:300]}")
+                                    add("巡检", f"❌ **`{plabel}` {inst_id} 平仓未成交**：{_rd.get('sMsg') or resp.get('msg') or '未确认成交'}\n> 交易所端仓位仍在，本轮**不删记录**，下轮重试")
+                                    _closed = False
+                                else:
+                                    _src = "交易所成交价"
+                            if not _closed:
+                                continue
                             ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
                             sign = 1 if p["direction"] == "long" else -1
                             pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
