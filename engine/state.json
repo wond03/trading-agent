@@ -1,24 +1,5 @@
 {
- "positions": [
-  {
-   "inst": "BTC-USDT-SWAP",
-   "direction": "long",
-   "entry": 84907.47,
-   "sl": 86559.16857142857,
-   "tp": 88361.92571428572,
-   "size": 0.295,
-   "ratio": 0.5,
-   "risk_free": true,
-   "tp1_hit": true,
-   "leverage": 100,
-   "profile": "4-1-15",
-   "grade": "B",
-   "run_id": 1790908225.664739,
-   "opened": 1790908228,
-   "tp_algo_id": "",
-   "sl_algo_id": ""
-  }
- ],
+ "positions": [],
  "daily": {
   "date": "2026-10-02",
   "trades": 4,
@@ -27,8 +8,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1790944226.902937,
- "run_count_today": 85,
+ "last_run_ts": 1790944787.046996,
+ "run_count_today": 86,
  "history": [
   {
    "type": "signal",
@@ -75,6 +56,15 @@
    "profile": "4H+1H",
    "grade": "B",
    "detail": "BTC做多 · 进84,908 损84,738 标88,362 · RR1:20"
+  },
+  {
+   "type": "exit",
+   "ts": 1790944796.732716,
+   "profile": "4-1-15",
+   "pnl": 4.87,
+   "entry": 84907.47,
+   "exit": 86559.17,
+   "detail": "[4-1-15] BTC LONG +4.87U"
   }
  ],
  "pushed_signals": [
