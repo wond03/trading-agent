@@ -81,8 +81,7 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None, prof_label=""):
     rr = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl), 1e-9)
     _pct_sl = f"{'−' if sig.direction == 'long' else '+'}{sl_pct:.1f}%"
     _pct_tp = f"{'+' if sig.direction == 'long' else '−'}{tp_pct:.1f}%"
-    _g = getattr(sig, "grade", "A")
-    _emoji = "🚨" if _g == "A" else "📣"
+    _emoji = "🚨"
     _title = " · ".join([name, side] + ([prof_label] if prof_label else []))
     L = [f"{_emoji} **{_g}级信号 · {_title}**",
          "───────────────",
@@ -146,13 +145,11 @@ def build_daily_report(state, now_bj):
 
     if sigs:
         lines.append("")
-        _ga = sum(1 for h in sigs if h.get("grade", "A") == "A")
-        _gb = len(sigs) - _ga
         lines.append(f"**24h 信号**（A级{_ga} · B级{_gb}）")
         for h in sigs[-4:]:
             pf = C.STRATEGY_PROFILES.get(h.get("profile", ""), {}).get("label", h.get("profile", ""))
             ptag = f"[{pf}] " if pf else ""
-            lines.append(f"· {ptag}[{h.get('grade','A')}] {h['detail']}")
+            lines.append(f"· {ptag}{h['detail']}")
 
     ms = state.get("market_snapshot", [])
     if ms:
@@ -284,11 +281,6 @@ def _cancel_exchange_tpsl(client, inst_id, p):
                 print(f"[撤单异常] {k} {e}")
             p[k] = None
 
-_RANK = {"A": 2, "B": 1}
-
-def _rank(g):
-    return _RANK.get(str(g).upper(), 1)
-
 def _close_position_now(client, state, p, sym_cfg, reason):
     """撤交易所止盈止损 → 市价平仓 → 以交易所真实成交价结算 → 从state移除; 返回推送文本"""
     inst_id = p["inst"]
@@ -402,7 +394,6 @@ def run_once():
                 _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": pe["tp"],
                        "size": _fl, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
                        "leverage": pe["lev"], "profile": pe.get("profile", "4H+1H"),
-                       "grade": pe.get("grade", "B"),
                        "run_id": state["last_run_ts"], "opened": int(time.time())}
                 _po.update(_place_exchange_tpsl(client, _pinst, _psx, _fl, _tdx, pe["tp"], _slf))
                 state["positions"].append(_po)
@@ -494,7 +485,7 @@ def run_once():
                 _tpx = _epx + _rk * C.RR_MIN_GROWTH if _dirx == "long" else _epx - _rk * C.RR_MIN_GROWTH
                 _np = {"inst": _ins, "direction": _dirx, "entry": round(_epx, 4), "sl": round(_slx, 4),
                        "tp": round(_tpx, 4), "size": _sz, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
-                       "leverage": _levx, "profile": next(iter(PROFILES)), "grade": "接管",
+                       "leverage": _levx, "profile": next(iter(PROFILES)), "adopted": True,
                        "run_id": state["last_run_ts"], "opened": int(time.time()), "adopted": True}
                 _np.update(_place_exchange_tpsl(client, _ins, _psd, _sz, _tdx, _tpx, _slx))
                 state["positions"].append(_np)
@@ -524,8 +515,7 @@ def run_once():
         for _key, _lst in _grp.items():
             if len(_lst) < 2:
                 continue
-            _lst.sort(key=lambda x: (_rank(x.get("grade", "B")),
-                                     abs(x["tp"] - x["entry"]) / max(abs(x["entry"] - x["sl"]), 1e-9)), reverse=True)
+            _lst.sort(key=lambda x: abs(x["tp"] - x["entry"]) / max(abs(x["entry"] - x["sl"]), 1e-9), reverse=True)
             for _drop in _lst[1:]:
                 add("铁律", _close_position_now(client, state, _drop,
                                                    C.SYMBOLS.get(_drop["inst"], {}), "同向重复仓清理(只留一个)"))
@@ -595,13 +585,10 @@ def run_once():
                               if p["inst"] == inst_id and p["direction"] == sig.direction), None) if sig else None
                 _same_pend = any(pe.get("inst") == inst_id and pe.get("direction") == sig.direction
                                  for pe in state.get("pending_entries", [])) if sig else False
-                if sig and (_same_pend or (_same and _rank(_same.get("grade", "B")) >= _rank(getattr(sig, "grade", "B")))):
-                    print(f"[跳过] {plabel} {inst_id} 已有同向仓/挂单且质量不低于新信号, 不换仓")
+                if sig and (_same_pend or _same):
+                    # 同品种同向只留一仓: 已有同向仓/挂单 → 忽略新信号(不再分等级, 故不换仓)
+                    print(f"[跳过] {plabel} {inst_id} 已有同向仓/挂单, 不重复开仓")
                     sig = None
-                elif sig and _same:
-                    # 新信号质量更高 → 先平旧仓, 再开新仓
-                    add("铁律", _close_position_now(client, state, _same, sym_cfg, "换仓: 新信号质量更高, 先平旧仓"))
-                    print(f"[换仓] {inst_id} 旧仓{_same.get('grade','B')}级 → 新{getattr(sig,'grade','B')}级")
 
                 if sig:
                     ok, detail = risk.check_gates(sig)
@@ -641,7 +628,6 @@ def run_once():
                                               "size": fl, "ratio": 1.0,
                                               "risk_free": False, "tp1_hit": False,
                                               "leverage": used_lev, "profile": pname,
-                                              "grade": getattr(sig, "grade", "B"),
                                               "run_id": state["last_run_ts"],
                                               "opened": int(time.time())}
                                     # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
@@ -659,7 +645,7 @@ def run_once():
                                     state.setdefault("pending_entries", []).append({
                                         "inst": inst_id, "direction": sig.direction, "size": size["lots"],
                                         "ord_id": ordid, "tp": sig.tp, "profile": pname, "lev": used_lev,
-                                        "grade": getattr(sig, "grade", "B"), "sl": sig.sl,
+                                        "sl": sig.sl,
                                         "signal_entry": sig.entry, "ts": int(time.time())})
                                     line += (f"\n\n> ⏳ 已挂单待成交（状态{stt}）· 订单 {ordid}"
                                              f"\n> 演示盘成交慢，下轮巡检确认成交后再建仓")
@@ -681,7 +667,7 @@ def run_once():
                             _sdx = "做多" if sig.direction == "long" else "做空"
                             _rrx = abs(sig.tp - sig.entry) / max(abs(sig.entry - sl_use), 1e-9)
                             state.setdefault("history", []).append({"type": "signal", "ts": time.time(),
-                                "profile": pname, "grade": getattr(sig, "grade", "A"),
+                                "profile": pname,
                                 "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
                     else:
                         add("哨兵", f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
