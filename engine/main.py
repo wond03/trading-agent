@@ -263,8 +263,14 @@ def _fetch_gate(inst_id, limit, tf="1h"):
     r = requests.get("https://api.gateio.ws/api/v4/spot/candlesticks",
                      params={"currency_pair": pair, "interval": tf, "limit": limit}, timeout=15)
     # ★2026-10-03 未来函数修复: 只保留已收盘K线(row[7]=="true"), 剔除正在形成的当根
-    return [Candle(int(d[0]), float(d[5]), float(d[3]), float(d[4]), float(d[2]), float(d[1]))
-            for d in r.json() if len(d) > 7 and str(d[7]) == "true"]
+    _out = []
+    for d in r.json():
+        if len(d) > 7 and str(d[7]) == "true":
+            _ts = int(d[0])
+            if _ts > 1_000_000_000_000:       # 统一成【秒】(与 OKX/回测口径一致)
+                _ts //= 1000
+            _out.append(Candle(_ts, float(d[5]), float(d[3]), float(d[4]), float(d[2]), float(d[1])))
+    return _out
 
 def fetch_candles(client, inst_id, limit=300, tf=None):
     """数据源路由 + 故障自愈: OKX主力 → 失败自动切换 Gate.io 备用"""
