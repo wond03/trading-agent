@@ -270,6 +270,46 @@ def _cancel_exchange_tpsl(client, inst_id, p):
                 print(f"[撤单异常] {k} {e}")
             p[k] = None
 
+_RANK = {"A": 2, "B": 1}
+
+def _rank(g):
+    return _RANK.get(str(g).upper(), 1)
+
+def _close_position_now(client, state, p, sym_cfg, reason):
+    """撤交易所止盈止损 → 市价平仓 → 以交易所真实成交价结算 → 从state移除; 返回推送文本"""
+    inst_id = p["inst"]
+    _psx = "long" if p["direction"] == "long" else "short"
+    exit_px = p.get("entry"); _src = "按K线结构"
+    if not DRY_RUN:
+        _cancel_exchange_tpsl(client, inst_id, p)
+        side = "sell" if p["direction"] == "long" else "buy"
+        try:
+            resp = client.close_position(inst_id, side, p["size"],
+                                         td_mode=sym_cfg.get("td_mode", "isolated"), pos_side=_psx)
+            _cod = ((resp.get("data") or [{}])[0] or {}).get("ordId")
+            for _ in range(5):
+                _od = (client.get_order(inst_id, _cod).get("data") or [{}])[0]
+                if float(_od.get("accFillSz") or 0) > 0 or _od.get("state") in ("filled", "canceled"):
+                    exit_px = float(_od.get("avgPx") or exit_px); _src = "交易所成交价"; break
+                time.sleep(0.8)
+        except Exception as e:
+            print(f"[平仓异常] {inst_id} {e}")
+    ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
+    sign = 1 if p["direction"] == "long" else -1
+    pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
+    _nm = "BTC" if "BTC" in inst_id else "黄金"
+    _sd = "多单" if p["direction"] == "long" else "空单"
+    _pf = C.STRATEGY_PROFILES.get(p.get("profile", ""), {}).get("label", p.get("profile", ""))
+    state.setdefault("history", []).append({"type": "exit", "ts": time.time(), "profile": p.get("profile", ""),
+        "pnl": round(pnl, 2), "entry": round(p["entry"], 2), "exit": round(exit_px, 2),
+        "detail": f"[{_pf}] {_nm} {p['direction'].upper()} {pnl:+.2f}U"})
+    if p in state.get("positions", []):
+        state["positions"].remove(p)
+    _ico = "✅" if pnl > 1e-9 else ("➖" if pnl > -1e-9 else "❌")
+    return (f"{_ico} **已平仓 · {_nm} {_sd} [{_pf}]**\n"
+            f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}（{_src}）\n"
+            f"**盈亏** {pnl:+.2f}U\n**原因** {reason}")
+
 def run_once():
     state = load_state()
     print(f"[暗夜猎手 v3] 方案={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=双方案并行+开仓当根不判出场")
@@ -312,6 +352,7 @@ def run_once():
                 _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": pe["tp"],
                        "size": _fl, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
                        "leverage": pe["lev"], "profile": pe.get("profile", "4H+1H"),
+                       "grade": pe.get("grade", "B"),
                        "run_id": state["last_run_ts"], "opened": int(time.time())}
                 _po.update(_place_exchange_tpsl(client, _pinst, _psx, _fl, _tdx, pe["tp"], _slf))
                 state["positions"].append(_po)
@@ -334,6 +375,20 @@ def run_once():
                 _keep.append(pe)
                 reports.append(f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
         state["pending_entries"] = _keep
+
+    # ---- 同品种同向只留一个仓 (用户规则): 多余同向仓按"等级优先"清理 ----
+    if not DRY_RUN:
+        _grp = {}
+        for _p in list(state.get("positions", [])):
+            _grp.setdefault((_p["inst"], _p["direction"]), []).append(_p)
+        for _key, _lst in _grp.items():
+            if len(_lst) < 2:
+                continue
+            _lst.sort(key=lambda x: (_rank(x.get("grade", "B")),
+                                     abs(x["tp"] - x["entry"]) / max(abs(x["entry"] - x["sl"]), 1e-9)), reverse=True)
+            for _drop in _lst[1:]:
+                reports.append(_close_position_now(client, state, _drop,
+                                                   C.SYMBOLS.get(_drop["inst"], {}), "同向重复仓清理(只留一个)"))
 
     for inst_id, sym_cfg in C.SYMBOLS.items():
         if not sym_cfg.get("enabled"):
@@ -382,14 +437,18 @@ def run_once():
                     if fp in state.get("pushed_signals", []):
                         print(f"[跳过重复信号] {fp}")
                         sig = None
-                # 该方案在该品种已有持仓/挂单 → 不重复开仓(方案间互不阻塞)
-                _has_pos = (any(p["inst"] == inst_id and p.get("profile", "4H+1H") == pname
-                                for p in state.get("positions", []))
-                            or any(pe.get("inst") == inst_id and pe.get("profile", "4H+1H") == pname
-                                   for pe in state.get("pending_entries", [])))
-                if sig and _has_pos:
-                    print(f"[跳过] {plabel} {inst_id} 已有持仓, 不重复开仓")
+                # 同品种「同方向」只留一个仓(用户规则): 已有同向仓/挂单→高质量优先; 新信号更优则先平旧仓再开
+                _same = next((p for p in state.get("positions", [])
+                              if p["inst"] == inst_id and p["direction"] == sig.direction), None) if sig else None
+                _same_pend = any(pe.get("inst") == inst_id and pe.get("direction") == sig.direction
+                                 for pe in state.get("pending_entries", [])) if sig else False
+                if sig and (_same_pend or (_same and _rank(_same.get("grade", "B")) >= _rank(getattr(sig, "grade", "B")))):
+                    print(f"[跳过] {plabel} {inst_id} 已有同向仓/挂单且质量不低于新信号, 不换仓")
                     sig = None
+                elif sig and _same:
+                    # 新信号质量更高 → 先平旧仓, 再开新仓
+                    reports.append(_close_position_now(client, state, _same, sym_cfg, "换仓: 新信号质量更高, 先平旧仓"))
+                    print(f"[换仓] {inst_id} 旧仓{_same.get('grade','B')}级 → 新{getattr(sig,'grade','B')}级")
 
                 if sig:
                     ok, detail = risk.check_gates(sig)
@@ -429,6 +488,7 @@ def run_once():
                                               "size": fl, "ratio": 1.0,
                                               "risk_free": False, "tp1_hit": False,
                                               "leverage": used_lev, "profile": pname,
+                                              "grade": getattr(sig, "grade", "B"),
                                               "run_id": state["last_run_ts"],
                                               "opened": int(time.time())}
                                     # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
@@ -444,6 +504,7 @@ def run_once():
                                     state.setdefault("pending_entries", []).append({
                                         "inst": inst_id, "direction": sig.direction, "size": size["lots"],
                                         "ord_id": ordid, "tp": sig.tp, "profile": pname, "lev": used_lev,
+                                        "grade": getattr(sig, "grade", "B"),
                                         "signal_entry": sig.entry, "ts": int(time.time())})
                                     line += (f"\n\n> ⏳ 已挂单待成交（状态{stt}）· 订单 {ordid}"
                                              f"\n> 演示盘成交慢，下轮巡检确认成交后再建仓")
