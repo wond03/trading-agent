@@ -86,7 +86,8 @@ class EntryEngine:
         rng = post_high - post_low
         if rng <= 0:
             return None
-        px = candles[i].close
+        # 入场价 = 【15m 最新收盘价】(2026-10-03 用户裁定 ①: 入场价基准由 1H close 改为 15m)
+        px = ltf_candles[-1].close if ltf_candles else candles[i].close
         fib_levels = [post_high - rng * f for f in C.RETRACE_FIBS] if turn_dir == "up" \
                 else [post_low + rng * f for f in C.RETRACE_FIBS]
         in_retrace = any(abs(px - lv) / rng < 0.25 for lv in fib_levels)
