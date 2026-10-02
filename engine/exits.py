@@ -4,13 +4,15 @@
 import config as C
 
 class Position:
-    def __init__(self, direction, entry, sl, tp, size=1.0, opened_bar=0):
+    def __init__(self, direction, entry, sl, tp, size=1.0, opened_bar=0, inst=None, lots=0):
         self.direction = direction    # 'long'/'short'
         self.entry = entry
         self.sl = sl
         self.tp = tp
-        self.size = size              # 1.0 = 满仓
+        self.size = size              # 1.0 = 满仓(比例)
         self.opened_bar = opened_bar
+        self.inst = inst              # 品种(算浮盈用)
+        self.lots = lots              # 实际张数(算浮盈用)
         self.risk_free = False        # 是否已上保本
         self.tp1_hit = False
         self.history = []
@@ -59,16 +61,16 @@ class ExitEngine:
 
         # ---- 规则D1-① "出量止盈": 2026-10-03 用户裁定【不做】(原文只讲"出量要吃", 没给任何可量化定义) ----
 
-        # ---- 规则D2: 摸前高/前低 → 上保本 ----
+        # ---- 规则D2: 浮盈达 1 倍保证金(=MARGIN_PER_TRADE, 当前5U) → 上保本 ----
+        #   2026-10-03 用户裁定: 上保本触发条件改为"浮盈≥5U", 不再用"摸前高/前低"
         if not pos.risk_free:
-            hs = [s for s in se.swings if s[1] == "H"]
-            ls = [s for s in se.swings if s[1] == "L"]
-            if pos.direction == "long" and hs and bar.high >= hs[-1][2] * 0.999:
-                actions.append(("MOVE_SL", f"触及前高{hs[-1][2]:.1f}, 止损移至保本 (规则D2)"))
-                pos.sl = max(pos.sl, pos.entry); pos.risk_free = True
-            if pos.direction == "short" and ls and bar.low <= ls[-1][2] * 1.001:
-                actions.append(("MOVE_SL", f"触及前低{ls[-1][2]:.1f}, 止损移至保本 (规则D2)"))
-                pos.sl = min(pos.sl, pos.entry); pos.risk_free = True
+            _ctv = C.INST_SPECS.get(getattr(pos, "inst", None) or "", {}).get("ctVal", 0)
+            _sign = 1 if pos.direction == "long" else -1
+            _pnl = (bar.close - pos.entry) * _sign * (pos.lots or 0) * _ctv
+            if _pnl >= C.MARGIN_PER_TRADE:
+                pos.sl = max(pos.sl, pos.entry) if pos.direction == "long" else min(pos.sl, pos.entry)
+                pos.risk_free = True
+                actions.append(("MOVE_SL", f"浮盈 {_pnl:.2f}U ≥ {C.MARGIN_PER_TRADE:.0f}U(1倍保证金) → 止损移到保本"))
 
         # ---- 规则D4: 突破结构位 → SL移到被突破位下方 ----
         if C.TRAIL_SL_ON_BOS:
