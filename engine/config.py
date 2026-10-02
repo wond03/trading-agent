@@ -28,8 +28,7 @@ STRATEGY_PROFILES = {
 MARGIN_PER_TRADE = 5.0      # 每单保证金 5 USDT
 LEVERAGE_FIXED = 100        # 固定 100 倍
 INST_LEVER = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 50}   # 各品种实际上限(OKX实测: XAU上限50)
-LIQ_BUFFER_PCT = 0.003      # [工] 爆仓线前 0.3% 强平(保命止损, 避免爆仓罚金)
-MMR_ESTIMATE = 0.005        # [工] 维持保证金率估算(交易所参数)
+LIQ_BUFFER_PCT = 0.003      # [工] 仅用于"孤儿仓保命止损": 在【交易所返回的爆仓价】内 0.3% 处挂止损
 
 # ---------- 结构引擎 (模块A) ----------
 SWING_LEFT = 2        # [工] swing 极值确认窗口(左)
