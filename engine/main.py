@@ -366,6 +366,19 @@ def run_once():
             _st = od.get("state")
             _fl = float(od.get("accFillSz") or 0)
             _avg = float(od.get("avgPx") or pe.get("signal_entry", 0))
+            # 兼容演示盘"已成交但订单状态未更新" → 用持仓反查
+            if _fl <= 0 and _st not in ("canceled", "filled"):
+                try:
+                    _pp = [x for x in (client.get_positions(inst_id=_pinst).get("data") or [])
+                           if x.get("posSide") == ("long" if pe["direction"] == "long" else "short")
+                           and float(x.get("pos") or 0) > 0]
+                except Exception:
+                    _pp = []
+                _tracked = any(x["inst"] == _pinst and x["direction"] == pe["direction"] for x in state.get("positions", []))
+                if _pp and not _tracked:
+                    _fl = float(_pp[0].get("pos") or 0)
+                    _avg = float(_pp[0].get("avgPx") or _avg)
+                    print(f"[待成交] {_pinst} 订单仍live但已有持仓 → 判定已成交 {_fl}@{_avg}")
             if _fl > 0:
                 _slf = adaptive_sl(_avg, pe["direction"], pe.get("sl", pe.get("signal_entry", _avg)),
                                    pe.get("signal_entry", _avg), pe["lev"])[0]
@@ -387,12 +400,12 @@ def run_once():
                                f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}")
             elif _st == "canceled":
                 reports.append(f"⚠️ **{_nm} {_pl}** 挂单已被取消（未成交）")
-            elif time.time() - pe.get("ts", 0) > 3600:
+            elif time.time() - pe.get("ts", 0) > 1200:
                 try:
                     client.cancel_order(_pinst, pe["ord_id"])
                 except Exception as e:
                     print(f"[撤待成交异常] {e}")
-                reports.append(f"⚠️ **{_nm} {_pl}** 挂单超60分钟未成交，已撤")
+                reports.append(f"⚠️ **{_nm} {_pl}** 挂单超20分钟未成交，已撤")
             else:
                 _keep.append(pe)
                 reports.append(f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
