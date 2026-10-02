@@ -580,7 +580,7 @@ def run_once():
                     if fp in state.get("pushed_signals", []):
                         print(f"[跳过重复信号] {fp}")
                         sig = None
-                # 同品种「同方向」只留一个仓(用户规则): 已有同向仓/挂单→高质量优先; 新信号更优则先平旧仓再开
+                # 同品种「同方向」只留一仓(用户规则): 已有同向仓/挂单 → 直接忽略新信号, 不换仓; 不同方向可并存
                 _same = next((p for p in state.get("positions", [])
                               if p["inst"] == inst_id and p["direction"] == sig.direction), None) if sig else None
                 _same_pend = any(pe.get("inst") == inst_id and pe.get("direction") == sig.direction
