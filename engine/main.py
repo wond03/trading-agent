@@ -957,6 +957,9 @@ def run_once():
     else:
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
 
+    # ---- 图表推送(裁定A: 只在 信号/开仓/平仓 时登记) ★文字先发, 图后发 ----
+    flush_charts(client)
+
     state["history"] = state.get("history", [])[-100:]   # 历史保留最近100条
     state["market_snapshot"] = market_notes               # 供日报展示
     state["fail_streak"] = 0                              # 运行成功, 重置失败计数
