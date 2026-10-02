@@ -61,10 +61,11 @@
    "type": "exit",
    "ts": 1790944796.732716,
    "profile": "4-1-15",
-   "pnl": 4.87,
+   "pnl": 0,
    "entry": 84907.47,
    "exit": 86559.17,
-   "detail": "[4-1-15] BTC LONG +4.87U"
+   "detail": "[4-1-15] BTC LONG +4.87U（未成交·作废）",
+   "void": true
   },
   {
    "type": "exit",
