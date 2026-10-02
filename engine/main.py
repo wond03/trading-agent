@@ -310,6 +310,18 @@ def _close_position_now(client, state, p, sym_cfg, reason):
             f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}（{_src}）\n"
             f"**盈亏** {pnl:+.2f}U\n**原因** {reason}")
 
+def _last_realized(client, inst_id, pos_side):
+    """取该品种最近一笔已平仓的交易所实现盈亏与平仓均价(用于'交易所端自动平仓'对账)"""
+    try:
+        h = client._get("/api/v5/account/positions-history",
+                        {"instType": "SWAP", "instId": inst_id, "limit": "5"})
+        for x in (h.get("data") or []):
+            if x.get("posSide") == pos_side:
+                return float(x.get("realizedPnl") or 0), float(x.get("closeAvgPx") or 0)
+    except Exception as e:
+        print(f"[对账] 历史查询失败 {e}")
+    return 0.0, None
+
 def run_once():
     state = load_state()
     print(f"[暗夜猎手 v3] 方案={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=双方案并行+开仓当根不判出场")
@@ -365,16 +377,50 @@ def run_once():
                                f"> 🎯 交易所已挂 止盈 {fmt_price(pe['tp'])} / 止损 {fmt_price(_slf)}")
             elif _st == "canceled":
                 reports.append(f"⚠️ **{_nm} {_pl}** 挂单已被取消（未成交）")
-            elif time.time() - pe.get("ts", 0) > 1800:
+            elif time.time() - pe.get("ts", 0) > 3600:
                 try:
                     client.cancel_order(_pinst, pe["ord_id"])
                 except Exception as e:
                     print(f"[撤待成交异常] {e}")
-                reports.append(f"⚠️ **{_nm} {_pl}** 挂单超30分钟未成交，已撤")
+                reports.append(f"⚠️ **{_nm} {_pl}** 挂单超60分钟未成交，已撤")
             else:
                 _keep.append(pe)
                 reports.append(f"⏳ **{_nm} {_pl}** 挂单待成交中（已等待{int((time.time() - pe.get('ts', 0)) / 60)}分钟）")
         state["pending_entries"] = _keep
+
+    # ---- 对账: 与交易所持仓核对(防状态漂移) ----
+    # 交易所端触发的止盈/止损会把仓位平掉, 但引擎不知情 → 这里同步, 保证报表=交易所
+    if not DRY_RUN and state.get("positions"):
+        _lp = {}
+        for _ in range(3):                     # 3次取并集, 规避接口偶发空返回导致误判
+            try:
+                for x in (client.get_positions().get("data") or []):
+                    _kk = (x["instId"], x.get("posSide"))
+                    _lp[_kk] = max(_lp.get(_kk, 0), float(x.get("pos") or 0))
+            except Exception as e:
+                print(f"[对账] 查询失败 {e}")
+            time.sleep(1)
+        _state_keys = set()
+        for _p in list(state.get("positions", [])):
+            _key = (_p["inst"], "long" if _p["direction"] == "long" else "short")
+            _state_keys.add(_key)
+            if _lp.get(_key, 0) > 0:
+                continue
+            _nm = "BTC" if "BTC" in _p["inst"] else "黄金"
+            _pf = C.STRATEGY_PROFILES.get(_p.get("profile", ""), {}).get("label", _p.get("profile", ""))
+            _rp, _cpx = _last_realized(client, _p["inst"], _key[1])
+            state["positions"].remove(_p)
+            state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
+                "profile": _p.get("profile", ""), "pnl": round(_rp, 2),
+                "entry": round(_p["entry"], 2), "exit": round(_cpx or _p["entry"], 2),
+                "detail": f"[{_pf}] {_nm} {_p['direction'].upper()} {_rp:+.2f}U(交易所端)"})
+            reports.append(f"🏁 **交易所端已平仓 · {_nm} {_pf}**\n"
+                           f"> 交易所止盈/止损已触发，引擎已同步\n"
+                           f"> **进出** {fmt_price(_p['entry'])} → {fmt_price(_cpx or _p['entry'])}\n"
+                           f"> **盈亏** {_rp:+.2f}U（交易所实现盈亏）")
+        for _k, _sz in _lp.items():
+            if _sz > 0 and _k not in _state_keys:
+                reports.append(f"⚠️ **交易所端游离持仓** {_k[0]} {_k[1]} {_sz} — 引擎未记录，请核对")
 
     # ---- 同品种同向只留一个仓 (用户规则): 多余同向仓按"等级优先"清理 ----
     if not DRY_RUN:
