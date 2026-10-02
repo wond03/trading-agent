@@ -27,8 +27,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1790922628.1989841,
- "run_count_today": 61,
+ "last_run_ts": 1790923518.50147,
+ "run_count_today": 62,
  "history": [
   {
    "type": "signal",
@@ -89,7 +89,7 @@
  "daily_report_date": "2026-10-02",
  "market_snapshot": [
   "· `4-1-15` BTC: 上涨趋势 | 活跃FVG 85,532~85,850 | 最近截取 扫上84,368(1点)",
-  "· `4-1-15` 黄金: 上涨趋势 | 活跃FVG 4,183~4,188 | 最近截取 扫上4,197(1点)"
+  "· `4-1-15` 黄金: 上涨趋势 | 活跃FVG 4,183~4,188 | 最近截取 扫上4,197(3点)"
  ],
  "pushed_watch": [],
  "fail_streak": 0,
