@@ -8,7 +8,11 @@ CST = datetime.timezone(datetime.timedelta(hours=8))
 
 
 def _dt(ts):
-    return datetime.datetime.fromtimestamp(ts, CST)
+    """★2026-10-03: 兼容毫秒与秒两种时间戳(OKX=毫秒 / Gate=秒), 否则 fromtimestamp 会报 year out of range"""
+    v = float(ts)
+    if v > 1_000_000_000_000:
+        v /= 1000.0
+    return datetime.datetime.fromtimestamp(v, CST)
 
 
 def render(inst_id, bars_main, bars_ltf, se, le, s15, l15, lines, out_path,
