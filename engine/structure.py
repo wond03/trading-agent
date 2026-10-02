@@ -9,7 +9,9 @@ class Candle:
         self.ts, self.open, self.high, self.low, self.close, self.vol = ts, o, h, l, c, v
 
 def atr(candles, period=14):
-    """ATR(14), 用于盘整判定/止损缓冲/FVG过滤"""
+    """⚠️ ATR 属【体系外指标】—— 课程明确否定技术指标
+    (BV1w8cuzmEcp[011min]「什么 m a c d、布林带 这些都是废的」; BV1w8cuzmEDA[010min]「指标…没有用」)
+    2026-10-02 交易逻辑中的 ATR 用法已全部移除; 此函数仅为历史诊断脚本保留, 新代码请勿使用"""
     if len(candles) < period + 1:
         return 0
     trs = []
@@ -59,20 +61,8 @@ class StructureEngine:
         self._sl_locked = False
         self._locked_sh_idx = -1
         self._locked_sl_idx = -1
-        self._last_atr = None
-
-    def _is_consolidation(self, swings):
-        """规则A4: 最近一次swing high与swing low间距 < ATR*1.5 → 盘整"""
-        hs = [s for s in swings if s[1] == "H"]
-        ls = [s for s in swings if s[1] == "L"]
-        if not hs or not ls:
-            return False
-        rng = hs[-1][2] - ls[-1][2]
-        return rng < self._last_atr * C.CONSOLIDATION_ATR
-
     def process(self, candles):
         """批量处理历史K线(增量也可, 内部按序逐根)"""
-        self._last_atr = atr(candles)
         for i in range(self._i + 1, len(candles)):
             self._step(candles, i)
         self._i = len(candles) - 1
@@ -134,16 +124,19 @@ class StructureEngine:
             self.events.append((i, "sweep_down_liquidity", sl_p))    # 影线扫低=下方流动性截取
 
     def _check_consolidation(self, hs, ls):
-        """规则A4: 区间宽度 < ATR*CONSOLIDATION_ATR → 盘整"""
-        if not hs or not ls or len(hs) < 1 or len(ls) < 1:
+        """规则A4: 盘整 = "看不到结构"
+        原文 BV1w8cuzmEmx[016min]「有棱有角的地方才叫结构…狗屎盘面在这盘整的它就不能称之为是结构」
+        2026-10-02 去掉 ATR(体系外指标): 改为【定性】判定 ——
+        最近的高低点既没有"高点抬高+低点抬高"(上涨结构)也没有"高点降低+低点降低"(下跌结构)
+        → 没有结构递进 → 盘整"""
+        if len(hs) < 2 or len(ls) < 2:
             return False
-        a = self._last_atr
-        if not a:
-            return False
-        rng = abs(hs[-1][2] - ls[-1][2])
-        return rng < a * C.CONSOLIDATION_ATR
+        h1, h2 = hs[-2][2], hs[-1][2]
+        l1, l2 = ls[-2][2], ls[-1][2]
+        up_struct = (h2 > h1) and (l2 > l1)     # 高点抬高 + 低点抬高
+        dn_struct = (h2 < h1) and (l2 < l1)     # 高点降低 + 低点降低
+        return not (up_struct or dn_struct)
 
-    _last_atr = None
     def _blocked_by_consolidation(self, direction):
         """规则A4: 盘整区内突破不确认结构"""
         return self.in_consolidation
