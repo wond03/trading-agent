@@ -47,6 +47,63 @@ def push(text):
     except Exception as e:
         print(f"[推送失败] {e}")
 
+
+# ---------- 企微【图片】推送 + 信号标注图 (2026-10-03 新增, 用户裁定A: 只在 信号/开仓/平仓 时推) ----------
+_PENDING_CHARTS = []
+
+
+def push_image(png_path):
+    """推送企业微信【图片】消息 (msgtype=image, base64+md5)。失败只打印, 不抛异常。"""
+    if not WECOM:
+        return
+    try:
+        import base64, hashlib, requests
+        raw = open(png_path, "rb").read()
+        if len(raw) > 1_800_000:
+            print(f"[推送图片] 文件过大跳过 {len(raw)}B"); return
+        r = requests.post(WECOM, json={"msgtype": "image", "image": {
+            "base64": base64.b64encode(raw).decode(),
+            "md5": hashlib.md5(raw).hexdigest()}}, timeout=25)
+        print(f"[已推送企微图片] {os.path.basename(png_path)} {len(raw)}B -> {r.text[:120]}")
+    except Exception as e:
+        print(f"[推送图片失败] {type(e).__name__} {e}")
+
+
+def push_chart(client, inst_id, lines, title=""):
+    """渲染并推送「信号标注图」: 上=1H(结构/截取/BOS/CHoCH) 下=15m(转势CHoCH+FVG)
+    并把该笔的 进场/止损/目标 画上去。lines=[(价格,标签,颜色hex)]
+    ★容错: 取数/画图/推送 任一步失败都只打印, **绝不影响交易主流程**。"""
+    if not WECOM:
+        return
+    try:
+        import signal_chart
+        b_main = fetch_candles(client, inst_id, limit=200, tf="1H")
+        b_ltf = fetch_candles(client, inst_id, limit=400, tf="15m")
+        if len(b_main) < 20 or len(b_ltf) < 20:
+            print(f"[图表] {inst_id} K线不足, 跳过"); return
+        s_m = StructureEngine(); s_m.process(b_main)
+        l_m = LiquidityEngine(); l_m.process(b_main)
+        s_l = StructureEngine(); s_l.process(b_ltf)
+        l_l = LiquidityEngine(); l_l.process(b_ltf)
+        out = os.path.join(BASE, f"chart_{inst_id.replace('-', '_')}.png")
+        p = signal_chart.render(inst_id, b_main, b_ltf, s_m, l_m, s_l, l_l, lines, out,
+                                title=title, main_n=60, ltf_n=80)
+        if p:
+            push_image(p)
+    except Exception as e:
+        print(f"[图表推送异常] {type(e).__name__} {e}")
+
+
+def queue_chart(inst_id, lines, title=""):
+    """登记一张待推送图表(本轮文字推送完再统一发, 保证"先字后图"的顺序)"""
+    _PENDING_CHARTS.append((inst_id, lines, title))
+
+
+def flush_charts(client):
+    while _PENDING_CHARTS:
+        inst, lines, title = _PENDING_CHARTS.pop(0)
+        push_chart(client, inst, lines, title)
+
 def load_state():
     """读取状态: 主文件损坏时自动回退备份(错误自愈)"""
     for path in (STATE_FILE, STATE_FILE + ".bak"):
@@ -387,6 +444,13 @@ def run_once():
         state["daily"]["by_profile"] = {_only: sum(v for v in _bp.values() if isinstance(v, int))}
 
     client = OkxClient(simulated=True)
+
+    # ★2026-10-03 图表推送测试开关: PUSH_TEST=1 → 只推一张测试图, **不做任何交易**(提前返回, 不改状态)
+    if os.environ.get("PUSH_TEST") == "1":
+        push("🧪 **图表推送测试** — 本条为测试消息，未做任何交易")
+        push_chart(client, "BTC-USDT-SWAP", [], "🧪 图表推送测试")
+        return
+
     reports = []
     market_notes = []
     def add(cat, txt):
@@ -495,6 +559,9 @@ def run_once():
                            f"> 交易所止盈/止损已触发，引擎已同步\n"
                            f"> **进出** {fmt_price(_p['entry'])} → {fmt_price(_cpx or _p['entry'])}\n"
                            f"> **盈亏** {_rp:+.2f}U（交易所实现盈亏）")
+            queue_chart(_p["inst"], [(_p["entry"], "进场", "#1f6feb"),
+                                     (_cpx or _p["entry"], "离场", "#7b1fa2")],
+                        title=f"平仓 · {_p['direction'].upper()} · {_rp:+.2f}U")
         for _k, _sz in _lp.items():
             if _sz > 0 and _k not in _state_keys:
                 # ★接管游离持仓(2026-10-02 用户裁定A): 交易所持仓存在但本地无记录 → 按交易所均价重建并补挂TP/SL
@@ -707,6 +774,10 @@ def run_once():
                                                        "simulated": True, "opened": int(time.time())})
                             _opened = True
                         add("哨兵", line)
+                        queue_chart(inst_id, [(sig.entry, "进场", "#1f6feb"),
+                                              (sl_use, "止损", "#d32f2f"),
+                                              (sig.tp, "目标", "#2e7d32")],
+                                    title=f"{'做多' if sig.direction == 'long' else '做空'} · {plabel}")
                         if _opened:
                             _nmx = "BTC" if "BTC" in inst_id else "黄金"
                             _sdx = "做多" if sig.direction == "long" else "做空"
@@ -814,6 +885,9 @@ def run_once():
                                            f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}（{_src}）\n"
                                            f"**盈亏** {pnl:+.2f}U（{pnl / C.MARGIN_PER_TRADE * 100:+.0f}%）\n"
                                            f"**原因** {act[1]}")
+                            queue_chart(p["inst"], [(p["entry"], "进场", "#1f6feb"),
+                                                    (exit_px, "离场", "#7b1fa2")],
+                                        title=f"平仓 · {p['direction'].upper()} · {pnl:+.2f}U")
                             state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
                                 "profile": pname, "pnl": round(pnl, 2),
                                 "entry": round(p["entry"], 2), "exit": round(exit_px, 2),
