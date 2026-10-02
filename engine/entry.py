@@ -23,13 +23,13 @@ class EntrySignal:
 
 class EntryEngine:
     """五步流程状态机 (规则C1):
-    ①HTF定趋势 ②下推一级找截取 ③截取后看转势 ④等回踩 ⑤回踩中触发 → 开单
+    ①大级别定趋势 ②下推一级找截取 ③切小级别看转势 ④等回踩FVG ⑤触发 → 开单
     总开关(规则C2): 无截取或无转 = 不开单"""
 
     def __init__(self):
         self.last_signal_bar = -99
 
-    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None):
+    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None):
         """返回 EntrySignal 或 None"""
         i = bar_i if bar_i is not None else len(candles) - 1
         a = atr(candles)
@@ -58,15 +58,26 @@ class EntryEngine:
         sweep = valid_sweeps[-1]
         sweep_pts = sweep[3] if isinstance(sweep[3], int) else 1
 
-        # ③ 转势确认 (校准2026-10-02: 课程"转势"只认 CHoCH/MSS; BOS 是趋势延续, 不算转势)
-        #    并取消自创的"弱转势"(课程无此定义)
-        turn_events = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down")]
+        # ③ 转势确认 (课程校准2026-10-02 · 修正周期): 截取在交易级别(1H)找, 但"转势"要**切到小级别**看 —
+        #    原文 BV1H8cuzmEe5「一小时找到拌饭或双点, 进五分钟看结构」「切小级别, 切小级别再等转」
+        #    → 转势在小级别(15m)判定; 只认 CHoCH(BOS是趋势延续不算); 小级别不可用时才回退本级别结构
         turn_dir = None
-        for e in turn_events:
-            if htf_trend == "up" and e[1] == "CHoCH_up":
-                turn_dir = "up"; turn_bar = e[0]; break
-            if htf_trend == "down" and e[1] == "CHoCH_down":
-                turn_dir = "down"; turn_bar = e[0]; break
+        turn_bar = None
+        if ltf_se is not None:
+            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
+            _li = getattr(ltf_se, "last_idx", 10 ** 9)
+            if _lx and _lx[-1][0] >= _li - C.TURN_WINDOW_LTF:
+                if htf_trend == "up" and _lx[-1][1] == "CHoCH_up":
+                    turn_dir, turn_bar = "up", _lx[-1][0]
+                elif htf_trend == "down" and _lx[-1][1] == "CHoCH_down":
+                    turn_dir, turn_bar = "down", _lx[-1][0]
+        else:
+            turn_events = [e for e in se.events if e[0] > sweep[0] and e[1] in ("CHoCH_up", "CHoCH_down")]
+            for e in turn_events:
+                if htf_trend == "up" and e[1] == "CHoCH_up":
+                    turn_dir, turn_bar = "up", e[0]; break
+                if htf_trend == "down" and e[1] == "CHoCH_down":
+                    turn_dir, turn_bar = "down", e[0]; break
         sweep_price = sweep[2]                     # 被扫的极端价
         steps["turn"] = turn_dir
         if not turn_dir:
@@ -82,9 +93,10 @@ class EntryEngine:
                 else [post_low + rng * f for f in C.RETRACE_FIBS]
         px = candles[i].close
         in_retrace = any(abs(px - lv) / rng < 0.25 for lv in fib_levels)
-        # FVG 回踩检查
+        # FVG 回踩检查 (课程校准: FVG 同样看"切到的级别" —— BV1w8cuzmEr5「切到十五, 它就有对应的FVG」) → 优先小级别FVG
+        _fsrc = ltf_le if (ltf_le is not None and getattr(ltf_le, "fvgs", None)) else le
         in_fvg = any(f["kind"] == ("bull" if turn_dir == "up" else "bear")
-                     and f["bottom"] <= px <= f["top"] for f in le.fvgs)
+                     and f["bottom"] <= px <= f["top"] for f in _fsrc.fvgs)
         steps["retrace"] = {"in_retrace": in_retrace, "in_fvg": in_fvg}
         # ★校准(2026-10-02 用户裁定): FVG 是入场的唯一必要条件 —— 没踩到FVG就不做
         #   (斐波回撤只用于"看折价/溢价区", 不作为单独入场依据)
@@ -97,7 +109,7 @@ class EntryEngine:
         if ltf_se is not None:
             _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
             _li = getattr(ltf_se, "last_idx", 10 ** 9)
-            if _lx and _lx[-1][0] >= _li - 8:        # 近8根小级别K内的转势才算数
+            if _lx and _lx[-1][0] >= _li - C.TURN_WINDOW_LTF:   # 近N根小级别K内的转势(与③同窗口)
                 if turn_dir == "up" and _lx[-1][1] == "CHoCH_up":
                     trigger, strong = "小级别转多", True
                 elif turn_dir == "down" and _lx[-1][1] == "CHoCH_down":
