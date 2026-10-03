@@ -11,7 +11,7 @@
    "risk_free": false,
    "tp1_hit": false,
    "leverage": 50,
-   "profile": "4-1-15",
+   "profile": "1-15",
    "run_id": 1790974261.8994925,
    "opened": 1790974265,
    "tp_algo_id": "3975256174231928832",
@@ -24,12 +24,12 @@
   "date": "2026-10-04",
   "trades": 0,
   "by_profile": {
-   "4-1-15": 0
+   "1-15": 0
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791070250.6313148,
- "run_count_today": 31,
+ "last_run_ts": 1791070450.7435353,
+ "run_count_today": 32,
  "history": [
   {
    "type": "signal",
@@ -131,8 +131,8 @@
  ],
  "daily_report_date": "2026-10-03",
  "market_snapshot": [
-  "· **BTC** 上涨 | FVG 84,871~84,874 | 扫下84,478(1点)",
-  "· **黄金** 上涨 | FVG 4,138~4,139 | 扫上4,141(1点)"
+  "· **BTC** 下跌 | FVG 84,871~84,874 | 扫上84,688(1点)",
+  "· **黄金** 下跌 | FVG 4,138~4,139 | 扫上4,139(3点)"
  ],
  "pushed_watch": [],
  "fail_streak": 0,
