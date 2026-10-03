@@ -1,0 +1,17 @@
+name: probe-xau-gap
+# 一次性诊断: OKX 与 WEEX 的 XAU 价差 (沙盒连不上这两家, 只能在 Actions 上跑)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 对照 OKX / WEEX 黄金价
+        run: python probe_xau_gap.py
