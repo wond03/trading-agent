@@ -174,77 +174,57 @@ def why_no_signal(ee):
     return "⑤之后被拦(如止损距离<=0)"
 
 def build_daily_report(state, now_bj):
-    """每日日报 (北京时间早8点后首次运行推送)"""
+    """每日日报 (北京时间早8点后首次运行推送) —— 2026-10-03 精简版: 一行一事、去内部术语"""
     day = now_bj.strftime("%m-%d")
-    runs = state.get("run_count_today", 0)
     hist = [h for h in state.get("history", []) if time.time() - h.get("ts", 0) < 86400]
     sigs = [h for h in hist if h["type"] == "signal"]
     exs = [h for h in hist if h["type"] == "exit"]
     pos = state.get("positions", [])
 
-    lines = [f"🌙 **暗夜猎手 · 日报 {day}**", ""]
-    lines.append(f"**系统** ✅ 今日运行 {runs} 次 · 方案 {len(PROFILES)} 套")
-    lines.append(f"**交易** 信号 {len(sigs)} · 出场 {len(exs)} · 持仓 {len(pos)}")
-    if exs:
-        pnl = sum(h.get("pnl", 0) for h in exs)
-        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
-        lines.append(f"**盈亏** {pnl:+.2f}U · 胜率 {wins}/{len(exs)}")
-    else:
-        lines.append("**盈亏** 暂无平仓样本")
+    L = [f"🌙 **暗夜猎手 · 日报 {day}**", ""]
 
-    # ---- 双方案对照 ----
-    if len(PROFILES) > 1:
-        lines.append("")
-        lines.append("**方案对照（24h）**")
-        for pn, pf in PROFILES.items():
-            tag = pf.get("label", pn)
-            ps = [h for h in sigs if h.get("profile") == pn]
-            pe = [h for h in exs if h.get("profile") == pn]
-            ppnl = sum(h.get("pnl", 0) for h in pe)
-            wins = sum(1 for h in pe if h.get("pnl", 0) > 0)
-            stat = f"信号{len(ps)} 出场{len(pe)}"
-            stat += f" 盈亏{ppnl:+.2f}U 胜{wins}/{len(pe)}" if pe else " 暂无平仓"
-            lines.append(f"· `{tag}` {stat}")
-
+    # ① 持仓(最关键, 置顶)
     if pos:
-        lines.append("")
-        lines.append("**当前持仓**")
         for p in pos:
             nm = "BTC" if "BTC" in p["inst"] else "黄金"
             sd = "做多" if p["direction"] == "long" else "做空"
-            tg = "🧪模拟" if p.get("simulated") else "💰实盘"
-            pf = C.STRATEGY_PROFILES.get(p.get("profile", ""), {}).get("label", p.get("profile", ""))
-            ptag = f"[{pf}] " if pf else ""
-            _exch = " · 交易所已挂单✅" if p.get("tp_algo_id") or p.get("sl_algo_id") else ""
-            lines.append(f"{tg} {ptag}{nm}{sd} · 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} 标{fmt_price(p['tp'])}{_exch}")
+            _ex = " | 已挂单✅" if (p.get("tp_algo_id") or p.get("sl_algo_id")) else ""
+            L.append(f"**💰 持仓** {nm}{sd} | 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} "
+                     f"标{fmt_price(p['tp'])}{_ex}")
+    else:
+        L.append("**💰 持仓** 空仓")
 
+    # ② 24h 战绩(信号/出场/胜率/盈亏 合并一行)
+    if exs:
+        pnl = sum(h.get("pnl", 0) for h in exs)
+        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
+        L.append(f"**📊 24h** 信号{len(sigs)} 出场{len(exs)} | 胜{wins}/{len(exs)} | **{pnl:+.2f}U**")
+    else:
+        L.append(f"**📊 24h** 信号{len(sigs)} | 无平仓")
+
+    # ③ 24h 信号明细(最多4条, 近期在后)
     if sigs:
-        lines.append("")
-        lines.append(f"**24h 信号**（共 {len(sigs)} 条）")
+        L += ["", "**🎯 信号**"]
         for h in sigs[-4:]:
             pf = C.STRATEGY_PROFILES.get(h.get("profile", ""), {}).get("label", h.get("profile", ""))
-            ptag = f"[{pf}] " if pf else ""
-            lines.append(f"· {ptag}{h['detail']}")
+            L.append(f"· {f'[{pf}] ' if pf else ''}{h['detail']}")
 
+    # ④ 市场状态
     ms = state.get("market_snapshot", [])
     if ms:
-        lines.append("")
-        lines.append("**市场状态**")
-        lines.extend(ms)
+        L += ["", "**🌐 市场**"]
+        L.extend(ms)
 
+    # ⑤ 诊断(一行结论)
     try:
         from auto_calibrator import analyze
         d = analyze(state.get("history", []))
-        lines.append("")
-        lines.append(f"**🔬 诊断** {d['summary']}")
-        for a in d.get("advice", [])[:2]:
-            lines.append(f"· {a}")
+        L += ["", f"**🔬 诊断** {d.get('brief') or d['summary']}"]
     except Exception as e:
         print(f"[诊断异常] {e}")
 
-    lines.append("")
-    lines.append(f"_{'模拟观察' if DRY_RUN else '模拟盘自动交易'} · {C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_")
-    return "\n".join(lines)
+    L += ["", f"_{'模拟观察' if DRY_RUN else '模拟盘'} · {C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_"]
+    return "\n".join(L)
 
 def save_state(s):
     """保存前先备份旧状态(错误自愈)"""
@@ -682,7 +662,7 @@ def run_once():
                 _fvg = f"{_af[-1]['bottom']:,.0f}~{_af[-1]['top']:,.0f}" if _af else "无"
                 _lv = le.sweeps[-1] if le.sweeps else None
                 _sweep_txt = f"{'扫上' if _lv[1]=='up' else '扫下'}{_lv[2]:,.0f}({_lv[3]}点)" if _lv else "无近期截取"
-                market_notes.append(f"· `{plabel}` {_nmk}: {_trend}趋势 | 活跃FVG {_fvg} | 最近截取 {_sweep_txt}")
+                market_notes.append(f"· **{_nmk}** {_trend} | FVG {_fvg} | {_sweep_txt}")
 
                 # ---- 风控/连亏保护 (按方案独立) ----
                 risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
@@ -949,7 +929,9 @@ def run_once():
                         p["ratio"] = pos.size
 
     # ---- 每日日报: 北京时间8点后当天首次运行触发(窗口放宽, 防止调度错过8点档) ----
-    if now_bj.hour >= 8 and state.get("daily_report_date") != today:
+    if os.environ.get("FORCE_DAILY") == "1":        # ★测试钩子: 强制推一次日报(不改状态)
+        push(build_daily_report(state, now_bj))
+    elif now_bj.hour >= 8 and state.get("daily_report_date") != today:
         push(build_daily_report(state, now_bj))
         state["daily_report_date"] = today
 
