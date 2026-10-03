@@ -4,23 +4,13 @@ import requests
 SPOT = "https://api-spot.weex.com"
 CON = "https://api-contract.weex.com"
 TESTS = [
-    ("candles limit=10", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=10"),
-    ("candles limit=50", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=50"),
-    ("candles limit=100", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=100"),
-    ("candles limit=200", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=200"),
-    ("candles limit=1000", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=1000"),
-    ("candles 时间窗", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=200"
-                            "&startTime=1755000000000&endTime=1759000000000"),
-    ("candles endTime翻页", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=200"
-                              "&endTime=1758000000000"),
-    ("history/candles", CON, "/capi/v2/market/history/candles?symbol=cmt_btcusdt&granularity=1h&limit=200"),
-    ("历史K线 v2", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=1h&limit=200"),
-    ("granularity=1m", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1m&limit=5"),
-    ("granularity=30m", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=30m&limit=5"),
-    ("granularity=1d", CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1d&limit=5"),
-    ("现货 history limit=100", SPOT, "/api/v3/market/historyKlines?symbol=BTCUSDT&interval=1h&limit=100"),
-    ("现货 history limit=10", SPOT, "/api/v3/market/historyKlines?symbol=BTCUSDT&interval=1h&limit=10"),
-    ("合约 交易对信息", CON, "/capi/v2/market/contracts"),
+    ("hist limit=100", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=1h&limit=100"),
+    ("hist limit=200", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=1h&limit=200"),
+    ("hist endTime翻页", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=1h&limit=100&endTime=1758000000000"),
+    ("hist 时间窗", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=1h&limit=100&startTime=1757000000000&endTime=1758000000000"),
+    ("hist 15m endTime", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=15m&limit=200&endTime=1758000000000"),
+    ("hist 黄金 endTime", CON, "/capi/v2/market/historyCandles?symbol=cmt_xautusdt&granularity=1h&limit=100&endTime=1758000000000"),
+    ("hist 最老能到哪", CON, "/capi/v2/market/historyCandles?symbol=cmt_btcusdt&granularity=1d&limit=100"),
 ]
 for name, host, p in TESTS:
     try:
