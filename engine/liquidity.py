@@ -80,6 +80,35 @@ class LiquidityEngine:
         return None
 
     # ---- 流动性截取 (规则A11影线vs实体 + B5双点) ----
+    # ---------- 止损密集区 (2026-10-03 用户新口径: 影线破位 ≠ 截取, 必须扫到密集区) ----------
+    def _zones(self, pts, kind, tol):
+        """同向 swing 点按价格聚簇: 价差 <= tol 视为同一"止损密集区"(双顶/双底/等高)
+        返回 [(level, count)] ; level = 簇内最极端价 (H 取最高 / L 取最低)"""
+        cl = []
+        for j, p in sorted(pts, key=lambda x: x[1]):
+            if cl and abs(p - cl[-1][-1][1]) / max(abs(p), 1e-9) <= tol:
+                cl[-1].append((j, p))
+            else:
+                cl.append([(j, p)])
+        out = []
+        for c in cl:
+            lv = max(m[1] for m in c) if kind == "H" else min(m[1] for m in c)
+            out.append((lv, len(c)))
+        return out
+
+    def _trendline(self, pts, i):
+        """最近 3 个同向 swing 点连线(须单调: 低点递升=支撑线 / 高点递降=压制线)
+        返回该线在第 i 根处的值(用最近两点斜率外推); 不成线返回 None"""
+        if len(pts) < 3:
+            return None
+        (j1, p1), (j2, p2), (j3, p3) = sorted(pts, key=lambda x: x[0])[-3:]
+        if j3 == j2 or j2 == j1:
+            return None
+        if not (p1 < p2 < p3 or p1 > p2 > p3):
+            return None
+        slope = (p3 - p2) / (j3 - j2)
+        return p3 + slope * (i - j3)
+
     def _detect_sweeps(self, candles):
         """截取 = 影线扫过「近期已确认swing点」又收回 (规则A11/B8)
         修正: 流动性位用 swing 高点/低点(结构位), 而非近50根极值 —— 符合课程"扫前高/前低"原意
@@ -113,20 +142,38 @@ class LiquidityEngine:
                         dedup[-1] = s
                 else:
                     dedup.append(s)
-            recent = dedup[-6:]                 # 最近6个swing点=待猎取的流动性池
+            recent = dedup[-C.ZONE_LOOKBACK:]                 # 最近6个swing点=待猎取的流动性池
             if not recent:
                 continue
             bar = candles[i]
-            # 上截取: 影线扫过swing高点, 收盘收回下方
-            swept_up = [(si, p) for (si, k, p) in recent if k == "H" and bar.high > p and bar.close < p]
-            if swept_up:
-                level = max(p for _, p in swept_up)          # 扫到的最极端高点
-                raw.append((i, "up", level, len(swept_up)))
-            # 下截取: 影线扫过swing低点, 收盘收回上方
-            swept_dn = [(si, p) for (si, k, p) in recent if k == "L" and bar.low < p and bar.close > p]
-            if swept_dn:
-                level = min(p for _, p in swept_dn)
-                raw.append((i, "down", level, len(swept_dn)))
+            # ★2026-10-03 新口径: 先建"止损密集区"候选, 再看影线是否扫到它并收回
+            _hs = [(j, p) for (j, k, p) in recent if k == "H"]
+            _ls = [(j, p) for (j, k, p) in recent if k == "L"]
+            _cu, _cd = [], []
+            if _hs:
+                for lv, cnt in self._zones(_hs, "H", C.ZONE_TOL_PCT):
+                    _cu.append((lv, cnt, "cluster" if cnt >= 2 else "swing"))
+                _cu.append((max(p for _, p in _hs), len(_hs), "extreme"))      # 前高
+            if _ls:
+                for lv, cnt in self._zones(_ls, "L", C.ZONE_TOL_PCT):
+                    _cd.append((lv, cnt, "cluster" if cnt >= 2 else "swing"))
+                _cd.append((min(p for _, p in _ls), len(_ls), "extreme"))      # 前低
+            _th = self._trendline(_hs, i) if _hs else None
+            _tl = self._trendline(_ls, i) if _ls else None
+            if _th is not None:
+                _cu.append((_th, C.TRENDLINE_PTS, "trendline"))
+            if _tl is not None:
+                _cd.append((_tl, C.TRENDLINE_PTS, "trendline"))
+            # 上截取: 影线越过密集区上沿/压制线, 收盘收回下方
+            _hu = [c for c in _cu if bar.high > c[0] and bar.close < c[0]]
+            if _hu:
+                b = max(_hu, key=lambda c: c[1])
+                raw.append((i, "up", b[0], b[1], b[2]))
+            # 下截取: 影线跌破密集区下沿/支撑线, 收盘收回上方
+            _hd = [c for c in _cd if bar.low < c[0] and bar.close > c[0]]
+            if _hd:
+                b = max(_hd, key=lambda c: c[1])
+                raw.append((i, "down", b[0], b[1], b[2]))
         # 同根同向去重(保留被扫点数最多的)
         best = {}
         for s in raw:
@@ -135,7 +182,8 @@ class LiquidityEngine:
                 best[k] = s
         self.sweeps = sorted(best.values(), key=lambda x: x[0])[-60:]
         for s in self.sweeps:
-            self.events.append((s[0], f"sweep_{s[1]}", s[2], f"points={s[3]}"))
+            self.events.append((s[0], f"sweep_{s[1]}", s[2],
+                                f"points={s[3]} kind={s[4] if len(s) > 4 else '-'}"))
 
     def double_point_valid(self, sweep):
         """规则B5: 1H级别截取须扫到>=2个点"""
