@@ -10,6 +10,7 @@ from entry import EntryEngine
 from exits import ExitEngine, Position
 from risk import RiskManager, size_fixed_margin
 from okx_client import OkxClient
+import weex_client               # ★2026-10-03 用户裁定: 信号/回测数据源 = WEEX 合约; 模拟盘交易仍在 OKX
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -273,21 +274,29 @@ def _fetch_gate(inst_id, limit, tf="1h"):
     return _out
 
 def fetch_candles(client, inst_id, limit=300, tf=None):
-    """数据源路由 + 故障自愈: OKX主力 → 失败自动切换 Gate.io 备用"""
+    """数据源路由 + 故障自愈 (2026-10-03 用户裁定: 信号用【WEEX 合约】, 模拟盘交易仍在 OKX)
+    链路: WEEX 合约 → OKX → Gate 现货, 逐级自愈; 每一级都会打印实际用的源"""
     tf = tf or C.BASE_TF
     gate_tf = {"1H": "1h", "4H": "4h", "15m": "15m", "5m": "5m"}.get(tf, "1h")
-    if os.environ.get("DATA_SOURCE") == "gate":
+    if os.environ.get("DATA_SOURCE") == "gate":          # 仅离线诊断用
         return _fetch_gate(inst_id, limit, gate_tf)
+    # ① WEEX 合约 (与回测同一口径)
+    try:
+        rows = weex_client.get_candles(inst_id, tf, limit)
+        if rows:
+            return [Candle(*r) for r in rows]
+        raise RuntimeError("返回空")
+    except Exception as e:
+        print(f"[自愈] WEEX({tf})失败({type(e).__name__}): {str(e)[:120]} → 切 OKX")
+    # ② OKX (交易所在所, 兼作备用)
     try:
         return client.get_candles(inst_id, tf, limit)
     except Exception as e:
-        print(f"[自愈] OKX行情({tf})失败({type(e).__name__}), 切换备用源...")
-        try:
-            k = _fetch_gate(inst_id, limit, gate_tf)
-            print(f"[自愈] 备用源成功: {len(k)}根")
-            return k
-        except Exception as e2:
-            raise RuntimeError(f"主源失败({e}) 且备用源失败({e2})")
+        print(f"[自愈] OKX({tf})失败({type(e).__name__}) → 切 Gate")
+    # ③ Gate 现货 (最后兜底; XAU 走 PAXG 代理, 与前两级有基差)
+    k = _fetch_gate(inst_id, limit, gate_tf)
+    print(f"[自愈] Gate 备用源成功: {len(k)}根")
+    return k
 
 def get_htf_trend(client, inst_id, candles_base, htf="4H"):
     """大级别趋势 = 【结构方向】(课程原文: 趋势看截取/BOS 的方向, 不是"相对几根K线涨跌")
@@ -429,6 +438,7 @@ def _last_realized(client, inst_id, pos_side):
 def run_once():
     state = load_state()
     print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=单链4-1-15+开仓当根不判出场")
+    print(f"[数据源] 信号/回测 = WEEX 合约 ({weex_client.HOST}) | 交易 = OKX 模拟盘 | DRY_RUN={DRY_RUN}")
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
     last = state.get("last_run_ts", 0)
