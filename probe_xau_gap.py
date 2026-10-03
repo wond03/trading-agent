@@ -1,13 +1,11 @@
-# 一次性诊断: 同一时刻 OKX XAU-USDT-SWAP 与 WEEX cmt_xautusdt 的价格差
-# 背景: 10-03 04:51 信号价(WEEX 15m close)≈4145, 但 OKX 成交价 4205.9, 差约 60 点。
-# 目的: 确认这是"跨交易所价差"还是"成交价记录异常"。
-# 只在 GitHub Actions 上跑(沙盒连不上 OKX/WEEX)
+# 诊断③: OKX「真实盘」vs「模拟盘」的行情对照 (XAU / BTC)
+# 背景: 模拟盘这笔黄金成交在 4205.9, 但真实市场黄金约 4147 → 差 60 点。定位偏离来自哪一侧。
+# 只在 GitHub Actions 上跑
 import datetime
 import requests
 
 CST = datetime.timezone(datetime.timedelta(hours=8))
-OKX = "https://www.okx.com/api/v5/market"
-WEEX = "https://api-contract.weex.com/capi/v2/market"
+DEMO = {"x-simulated-trading": "1"}
 
 
 def T(ts):
@@ -17,60 +15,58 @@ def T(ts):
     return datetime.datetime.fromtimestamp(v, CST).strftime("%m-%d %H:%M")
 
 
-def okx(path, **params):
-    r = requests.get(f"{OKX}/{path}", params=params, timeout=30)
-    return r.status_code, r.json()
+def tick(inst, demo=False):
+    r = requests.get("https://www.okx.com/api/v5/market/ticker", params={"instId": inst},
+                     headers=DEMO if demo else {}, timeout=30)
+    d = (r.json().get("data") or [{}])[0]
+    return d.get("last"), d.get("bidPx"), d.get("askPx"), d.get("ts"), r.status_code
 
 
-def weex(path, **params):
-    r = requests.get(f"{WEEX}/{path}", params=params, timeout=30)
-    return r.status_code, r.json()
+def candles(inst, demo=False, bar="15m", limit="8"):
+    r = requests.get("https://www.okx.com/api/v5/market/candles",
+                     params={"instId": inst, "bar": bar, "limit": limit},
+                     headers=DEMO if demo else {}, timeout=30)
+    return r.json().get("data") or []
 
 
-print("=" * 72)
-print("① OKX 实时行情")
-code, j = okx("ticker", instId="XAU-USDT-SWAP")
-if code == 200 and j.get("data"):
-    d = j["data"][0]
-    print(f"  OKX XAU-USDT-SWAP 最新价 {d.get('last')}  (bid {d.get('bidPx')} / ask {d.get('askPx')})")
-else:
-    print("  ticker 失败", code, str(j)[:200])
+def weex(inst_w, tf="15m", limit="8"):
+    r = requests.get("https://api-contract.weex.com/capi/v2/market/candles",
+                     params={"symbol": inst_w, "granularity": tf, "limit": limit}, timeout=30)
+    j = r.json()
+    return j.get("data") if isinstance(j, dict) else j
 
-code, j = okx("candles", instId="XAU-USDT-SWAP", bar="15m", limit="100")
-o15 = {}
-if code == 200:
-    for row in j.get("data", []):
-        o15[int(row[0])] = [float(x) for x in row[1:5]]
-    print(f"  OKX 15m K线 {len(o15)} 根, 最新 {T(max(o15))}")
-else:
-    print("  candles 失败", code, str(j)[:200])
 
-code, j = weex("candles", symbol="cmt_xautusdt", granularity="15m", limit="100")
-w15 = {}
-if code == 200:
-    rows = j.get("data") if isinstance(j, dict) else j
-    for row in rows:
-        w15[int(row[0])] = [float(x) for x in row[1:5]]
-    print(f"  WEEX 15m K线 {len(w15)} 根, 最新 {T(max(w15))}")
-else:
-    print("  weex 失败", code, str(j)[:200])
+print("=" * 74)
+print("① 实时 ticker 对照")
+for inst, w in (("XAU-USDT-SWAP", "cmt_xautusdt"), ("BTC-USDT-SWAP", "cmt_btcusdt")):
+    a = tick(inst, demo=False)
+    b = tick(inst, demo=True)
+    print(f"  {inst}")
+    print(f"    真实盘  last={a[0]} bid/ask={a[1]}/{a[2]}  时间={T(a[3]) if a[3] else '-'} (http {a[4]})")
+    print(f"    模拟盘  last={b[0]} bid/ask={b[1]}/{b[2]}  时间={T(b[3]) if b[3] else '-'} (http {b[4]})")
+    try:
+        wa = w
+        wr = weex(inst_w=wa)
+        if wr:
+            print(f"    WEEX    last={wr[0][4]} (15m收盘 时间={T(wr[0][0])})")
+    except Exception as e:
+        print("    WEEX 读取失败", e)
 
-print("=" * 72)
-print("② 逐根对照(收盘价, 最近的 12 根)")
-print(f"  {'时间(CST)':>13} {'OKX收盘':>11} {'WEEX收盘':>11} {'差(OKX-WEEX)':>13}")
-for k in sorted(set(o15) | set(w15))[-12:]:
-    a = o15.get(k, [None] * 4)[3]
-    b = w15.get(k, [None] * 4)[3]
-    diff = f"{a - b:+.1f}" if (a and b) else "-"
-    print(f"  {T(k):>13} {a if a else '-':>11} {b if b else '-':>11} {diff:>13}")
-
-print("=" * 72)
-print("③ 关键窗口 10-03 04:30~05:15 CST (开仓那根)")
-want = ["10-03 04:30", "10-03 04:45", "10-03 05:00", "10-03 05:15"]
-for k in sorted(set(o15) | set(w15)):
-    if T(k) in want:
-        a = o15.get(k)
-        b = w15.get(k)
-        print(f"  {T(k)}  OKX {a}  WEEX {b}  差 {a[3]-b[3]:+.1f}" if (a and b) else f"  {T(k)} OKX={a} WEEX={b}")
-print("=" * 72)
+print("=" * 74)
+print("② 最近 8 根 15m 收盘 对照 (真实盘 / 模拟盘 / WEEX)")
+for inst, w in (("XAU-USDT-SWAP", "cmt_xautusdt"), ("BTC-USDT-SWAP", "cmt_btcusdt")):
+    lv = {int(x[0]): float(x[4]) for x in candles(inst, False)}
+    dm = {int(x[0]): float(x[4]) for x in candles(inst, True)}
+    wx = {}
+    try:
+        for row in (weex(inst_w=w) or []):
+            wx[int(row[0])] = float(row[4])
+    except Exception:
+        pass
+    print(f"  --- {inst} ---")
+    print(f"    {'时间':>12} {'真实盘':>10} {'模拟盘':>10} {'WEEX':>10} {'模拟-真实':>10}")
+    for k in sorted(set(lv) | set(dm) | set(wx))[-6:]:
+        d = f"{dm[k]-lv[k]:+.1f}" if (k in dm and k in lv) else "-"
+        print(f"    {T(k):>12} {lv.get(k, '-'):>10} {dm.get(k, '-'):>10} {wx.get(k, '-'):>10} {d:>10}")
+print("=" * 74)
 print("完成")
