@@ -42,132 +42,71 @@ class EntryEngine:
         if not htf_trend:
             return None
 
-        # ② 找截取 (规则C2: 无截取不开单; B5: 1H需双点)
-        #    双点(原文 BV1w8cuzmEqw[104-105min]「一小时要双点…卡了就卡在一起了, 那种都不能算」)
-        #    = 顺势方向上, 有 >=2 根【不同K线】各扫掉过一个点(不是"同一根K线扫2个点")
-        #    ★2026-10-02 去掉根数时效, 改为"以结构为准": 只看【当前这一段】(= 上一次反向结构破坏之后)
-        #      原文 BV1w8cuzmEcs[034min]「再截取的话…前面这两个就彻底失效了」→ 新结构出现, 旧截取作废
-        _opp = ("BOS_down", "CHoCH_down") if htf_trend == "up" else ("BOS_up", "CHoCH_up")
-        _seg = max([e[0] for e in se.events if e[1] in _opp], default=-1)   # 当前段起点(上次反向结构破坏)
-        same_dir = [s for s in le.sweeps if s[0] > _seg
-                    and ((htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up"))]
-        if not same_dir:
+        # ============ 视频法 (2026-10-04 用户裁定 A) ============
+        #   1H(背景) = 结构方向(BOS/CHoCH) + 【溢价/折价】过滤(斐波50%)
+        #   15m(入场) = 同向 CHoCH(实体收破"受保护的低/高点") 即入场信号
+        #   止损 = 结构高点(空)/低点(多)外侧 ; 止盈 = 对侧结构点 ; 不再固定 1:2
+        px = ltf_candles[-1].close if ltf_candles else candles[i].close
+        _H = getattr(se, "last_swing_high", None)                 # (idx,'H',price)
+        _L = getattr(se, "last_swing_low", None)
+        if not _H or not _L:
             return None
-        _bars_hit = sorted({s[0] for s in same_dir})            # 本段内发生过顺势截取的不同K线
-        steps["sweep"] = same_dir
-        if C.SWEEP_DOUBLE_POINT_H1 and len(_bars_hit) < 2:
-            return None                                         # 1H 必须双点
-        sweep = same_dir[-1]
-        sweep_pts = len(_bars_hit)
-        sweep_ts = candles[sweep[0]].ts                         # ★截取发生的时间(转势必须晚于它)
+        leg_hi, leg_lo = max(_H[2], _L[2]), min(_H[2], _L[2])
+        if leg_hi <= leg_lo:
+            return None
+        mid = (leg_hi + leg_lo) / 2.0                             # 斐波 50% 分界
+        premium = px >= mid
+        steps["zone"] = {"high": round(leg_hi, 4), "low": round(leg_lo, 4), "mid": round(mid, 4),
+                         "premium": bool(premium),
+                         "premium_ok": bool(premium if htf_trend == "down" else (not premium))}
+        if htf_trend == "down" and not premium:
+            return None                                           # 做空必须在溢价区(50%上方)
+        if htf_trend == "up" and premium:
+            return None                                           # 做多必须在折价区(50%下方)
+        # (可选门槛) 是否仍要求"扫到止损密集区" —— 视频法不需要, 由 C.REQUIRE_SWEEP 控制
+        if C.REQUIRE_SWEEP:
+            _opp = ("BOS_down", "CHoCH_down") if htf_trend == "up" else ("BOS_up", "CHoCH_up")
+            _seg = max([e[0] for e in se.events if e[1] in _opp], default=-1)
+            _sd = [s for s in le.sweeps if s[0] > _seg
+                   and ((htf_trend == "up" and s[1] == "down") or (htf_trend == "down" and s[1] == "up"))]
+            steps["sweep"] = _sd
+            if not _sd:
+                return None
 
-        # ③ 反转预警 (原文 BV1H8cuzmEe5[003/005min]「一小时找到拌饭或双点, 进五分钟看结构」「切小级别再等转」)
-        #    → 在【小级别(15m)】看 CHoCH; 只认 CHoCH(BOS不算); 必须【晚于截取】
-        #      ★语义(2026-10-03 用户): CHoCH = 反转预警(可能反转), 不是一定反转
-        #    ★2026-10-02 去掉根数时效: 只看【最近一次】CHoCH —— 结构最后转向哪, 就以哪为准
-        turn_dir, turn_bar, turn_ts = None, None, None
+        # ③ 入场信号: 15m 同向 CHoCH (必须"新鲜" —— 实盘每~15分钟一轮, 最多晚 ENTRY_MAX_AGE_BARS 根)
+        trigger = None
         if ltf_se is not None and ltf_candles:
             _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
             if _lx:
                 _last = _lx[-1]
-                if 0 <= _last[0] < len(ltf_candles):
-                    _t = ltf_candles[_last[0]].ts
-                    if _t > sweep_ts:                           # 必须晚于截取
-                        _d = "up" if _last[1] == "CHoCH_up" else "down"
-                        if _d == htf_trend:
-                            turn_dir, turn_bar, turn_ts = _d, _last[0], _t
-        sweep_price = sweep[2]                     # 被扫的极端价
-        steps["turn"] = turn_dir
-        if not turn_dir:
-            return None
-
-        # ④ 等回踩 (原文 BV1w8cuzmEqw[061min]「一定要有 feg 的区域, 并且在转四位以内」;
-        #            BV1w8cuzmErh[048min]「只要在里面, 引线上去什么的没所谓」)
-        #    → 价格【首次】与顺势 FVG 区间发生交集(影线触及即可, 不要求收盘价); 且回踩不得破"预警起点"
-        post_high = max(c.high for c in candles[sweep[0]:i+1])
-        post_low = min(c.low for c in candles[sweep[0]:i+1])
-        rng = post_high - post_low
-        if rng <= 0:
-            return None
-        # 入场价 = 【15m 最新收盘价】(2026-10-03 用户裁定 ①: 入场价基准由 1H close 改为 15m)
-        px = ltf_candles[-1].close if ltf_candles else candles[i].close
-        fib_levels = [post_high - rng * f for f in C.RETRACE_FIBS] if turn_dir == "up" \
-                else [post_low + rng * f for f in C.RETRACE_FIBS]
-        in_retrace = any(abs(px - lv) / rng < 0.25 for lv in fib_levels)
-        _kind = "bull" if turn_dir == "up" else "bear"
-        _fsrc = ltf_le if (ltf_le is not None and getattr(ltf_le, "fvgs", None)) else le
-        _flist = [f for f in _fsrc.fvgs if f["kind"] == _kind]
-        # 首次进入时间: 截取之后, 小级别K线【首次】与顺势FVG区间有交集(影线触及即可)
-        retrace_ts = None
-        _fvg_hit = None
-        if _flist and ltf_candles:
-            for c in ltf_candles:
-                if c.ts <= sweep_ts:
-                    continue
-                _hit = next((f for f in _flist if f["bottom"] <= c.high and c.low <= f["top"]), None)
-                if _hit:
-                    retrace_ts, _fvg_hit = c.ts, _hit
-                    break
-        in_fvg = retrace_ts is not None
-        steps["retrace"] = {"in_retrace": in_retrace, "in_fvg": in_fvg}
-        # ★校准(2026-10-02 用户裁定): FVG 是入场的唯一必要条件 —— 没踩到FVG就不做
-        if not in_fvg:
-            return None
-        # 回踩不得破"预警起点"(预警那根小级别K线的极值): 多单看低点 / 空单看高点
-        if turn_bar is not None and ltf_candles and 0 <= turn_bar < len(ltf_candles):
-            _tb = ltf_candles[turn_bar]
-            if turn_dir == "up":
-                if min(c.low for c in ltf_candles[turn_bar:]) < _tb.low:
-                    return None
-            else:
-                if max(c.high for c in ltf_candles[turn_bar:]) > _tb.high:
-                    return None
-
-        # ⑤ 触发 (原文 BV1H8cuzmEe5[005min]「回踩之后切小级别, 切小级别再等转, 等转就开多了」)
-        #    → 回踩到位【之后】小级别再出现的同向 CHoCH; 取不到小级别数据就不做(不再自创回退)
-        trigger, strong = None, False
-        if ltf_se is not None and ltf_candles:
-            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
-            if _lx:
-                _last = _lx[-1]                                 # 只看最近一次 CHoCH(去根数时效)
-                if 0 <= _last[0] < len(ltf_candles):
-                    _t = ltf_candles[_last[0]].ts
-                    _d = "up" if _last[1] == "CHoCH_up" else "down"
-                    if _t >= retrace_ts and _d == turn_dir:      # 必须晚于回踩 + 方向一致
-                        trigger, strong = ("小级别转多预警" if _d == "up" else "小级别转空预警"), True
+                _d = "up" if _last[1] == "CHoCH_up" else "down"
+                if _d == htf_trend and 0 <= _last[0] < len(ltf_candles):
+                    _age = len(ltf_candles) - 1 - _last[0]
+                    if _age <= C.ENTRY_MAX_AGE_BARS:
+                        trigger = ("15m 反转预警↑(CHoCH)" if _d == "up" else "15m 反转预警↓(CHoCH)")
+                        steps["turn_bar"] = _last[0]
         steps["trigger"] = trigger
         if not trigger:
             return None
 
-        # 生成信号: SL = 【入场所用 FVG 的那三根K线的极值】(2026-10-03 用户裁定 C —— **不是** FVG 区间边界;
-        #   即取这三根K线的最低点(多单)/最高点(空单)); TP 固定 1:2 (课程 BV1H8cuzmEbr[037min]「止盈就抓一比二」)
-        _fvg_lo = _fvg_hi = None
-        if _fvg_hit is not None and ltf_candles:
-            _fi = _fvg_hit.get("idx")
-            _tri = ltf_candles[max(0, _fi - 2): _fi + 1] if isinstance(_fi, int) else []
-            if _tri:
-                _fvg_lo = min(c.low for c in _tri)
-                _fvg_hi = max(c.high for c in _tri)
-        if turn_dir == "up":
-            sl = _fvg_lo if _fvg_lo is not None else sweep_price
-            risk = px - sl
-            if risk <= 0:
-                return None
-            tp = px + risk * C.RR_MIN_GROWTH                  # 止盈 = 恰好 1:2
-            rr = (tp - px) / risk
-            conf = "high" if in_fvg and in_retrace else "normal"
-            return EntrySignal("long", px, sl, tp,
-                               f"下截取@{sweep_price:.0f}({sweep[3]}) → 转多@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, sweep_pts)
+        # ④ 止损/止盈 = 结构位 (视频: 止损放前期高点/低点外侧, 目标 = 对侧结构点)
+        if htf_trend == "down":
+            sl = leg_hi * (1 + C.SL_BUFFER_PCT)
+            tp = leg_lo
+            risk, rew = sl - px, px - tp
         else:
-            sl = _fvg_hi if _fvg_hi is not None else sweep_price
-            risk = sl - px
-            if risk <= 0:
-                return None
-            tp = px - risk * C.RR_MIN_GROWTH                  # 止盈 = 恰好 1:2
-            rr = (px - tp) / risk
-            conf = "high" if in_fvg and in_retrace else "normal"
-            return EntrySignal("short", px, sl, tp,
-                               f"上截取@{sweep_price:.0f}({sweep[3]}) → 转空@{turn_bar} → 回踩 → {trigger} | RR=1:{rr:.1f}", steps, conf, sweep_pts)
+            sl = leg_lo * (1 - C.SL_BUFFER_PCT)
+            tp = leg_hi
+            risk, rew = px - sl, tp - px
+        if risk <= 0 or rew <= 0:
+            return None
+        rr = rew / risk
+        if rr < C.MIN_RR:
+            return None
+        _dir = "long" if htf_trend == "up" else "short"
+        _rz = (f"1H{htf_trend} | 斐波50%={mid:.1f} 现价{px:.1f}[{'溢价' if premium else '折价'}]"
+               f" → {trigger} | 损{sl:.1f} 标{tp:.1f} RR=1:{rr:.1f}")
+        return EntrySignal(_dir, px, sl, tp, _rz, steps, "high" if rr >= 2 else "normal", 0)
 
     # ---------- 模型2: 双蜡烛真假突破 (规则C3, CRT核心) ----------
     def double_candle_breakout(self, candles, i=None):
