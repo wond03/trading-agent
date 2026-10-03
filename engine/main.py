@@ -162,13 +162,9 @@ def why_no_signal(ee):
     st = getattr(ee, "last_steps", None) or {}
     if not st.get("htf_trend"):
         return "卡① 背景: 1H 结构方向未确立"
-    z = st.get("zone") or {}
-    if z and not z.get("premium_ok"):
-        return (f"卡② 价位: 未进入溢价/折价区(斐波50%={z.get('mid')}, "
-                f"现价在{'溢价区' if z.get('premium') else '折价区'})")
     if not st.get("trigger"):
-        return "卡③ 入场: 15m 未出现同向 CHoCH(或不够新)"
-    return "③之后被拦(止损/止盈/RR 不达标)"
+        return "卡② 入场: 15m 未出现同向 CHoCH(或不够新)"
+    return "②之后被拦(止损/止盈/RR 不达标)"
 
 def _hist_inst(h):
     """平仓记录品种: 新记录带 inst, 旧记录从 detail 兜底解析"""
