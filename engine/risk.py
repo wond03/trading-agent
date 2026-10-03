@@ -16,13 +16,13 @@ class RiskManager:
     # ---------- 五条件 AND 门 (规则F1) ----------
     def check_gates(self, signal, all_conditions=None):
         """返回 (通过: bool, 明细: list[str])
-        视频法(2026-10-04 裁定A)条件: ①背景方向(1H结构) ②溢价/折价(斐波50%) ③15m CHoCH入场 —— 严格AND"""
+        当前条件(2026-10-04): ①背景方向(1H结构) ②15m CHoCH入场 —— 严格AND
+        (原"②溢价/折价(斐波50%)"已按用户裁定删除)"""
         detail, ok = [], True
         s = signal.steps
         cond = {
             "①背景方向": bool(s.get("htf_trend")),
-            "②溢价/折价": bool((s.get("zone") or {}).get("premium_ok")),
-            "③15m CHoCH入场": bool(s.get("trigger")),
+            "②15m CHoCH入场": bool(s.get("trigger")),
         }
         if all_conditions:
             cond.update(all_conditions)
