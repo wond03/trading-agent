@@ -161,17 +161,14 @@ def why_no_signal(ee):
     """把入场引擎最后的进度翻译成"卡在哪一步" (★仅写运行日志, 不推送企业微信)"""
     st = getattr(ee, "last_steps", None) or {}
     if not st.get("htf_trend"):
-        return "卡① 趋势: 4H 结构方向未确立"
-    if "sweep" not in st:
-        return "卡② 截取: 本段(上次反向结构破坏之后)无顺势截取, 或未达双点"
-    if not st.get("turn"):
-        return "卡③ 反转预警: 15m 无「晚于截取」的同向 CHoCH"
-    r = st.get("retrace") or {}
-    if not r.get("in_fvg"):
-        return "卡④ 回踩: 价格尚未触及 15m 顺势 FVG"
+        return "卡① 背景: 1H 结构方向未确立"
+    z = st.get("zone") or {}
+    if z and not z.get("premium_ok"):
+        return (f"卡② 价位: 未进入溢价/折价区(斐波50%={z.get('mid')}, "
+                f"现价在{'溢价区' if z.get('premium') else '折价区'})")
     if not st.get("trigger"):
-        return "卡⑤ 触发: 回踩之后 15m 未再出现同向 CHoCH"
-    return "⑤之后被拦(如止损距离<=0)"
+        return "卡③ 入场: 15m 未出现同向 CHoCH(或不够新)"
+    return "③之后被拦(止损/止盈/RR 不达标)"
 
 def _hist_inst(h):
     """平仓记录品种: 新记录带 inst, 旧记录从 detail 兜底解析"""
@@ -435,7 +432,7 @@ def _last_realized(client, inst_id, pos_side):
 
 def run_once():
     state = load_state()
-    print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=单链4-1-15+开仓当根不判出场")
+    print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=两级别(1H+15m)+开仓当根不判出场")
     print(f"[数据源] 信号/回测 = WEEX 合约 ({weex_client.HOST}) | 交易 = OKX 模拟盘 | DRY_RUN={DRY_RUN}")
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
