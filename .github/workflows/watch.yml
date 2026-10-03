@@ -6,6 +6,10 @@ on:
         description: "1=图表推送测试(不下单)"
         required: false
         default: "0"
+      force_daily:            # 2026-10-03: 1 = 强制推一次日报(测试模板用, 不改状态)
+        description: "1=强制推日报(不下单)"
+        required: false
+        default: "0"
 permissions:
   contents: write             # 允许提交 state.json (可靠持久化)
 concurrency:
@@ -33,6 +37,7 @@ jobs:
           DRY_RUN: "0"          # 真实模拟盘交易
           CAPITAL_USD: "100000" # 模拟盘账户资金
           PUSH_TEST: ${{ inputs.push_test }}   # 2026-10-03: 1=只推测试图不下单
+          FORCE_DAILY: ${{ inputs.force_daily }}   # 2026-10-03: 1=强制推日报(测试模板)
         run: python engine/main.py
       - name: 状态持久化(提交到仓库)
         run: |
