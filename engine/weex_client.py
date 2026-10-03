@@ -103,7 +103,11 @@ def get_range(inst_id, tf, start_ts, end_ts):
         if new:
             st.update(new)
             have_min = min(have_min, min(new))
-        cur_end = win_start - dur
+            # ★2026-10-03 修复: 原先用 win_start-dur 作下一页边界, 因每页只回 100 根(含端点),
+            #   会在每页接缝处丢 1 根(实测 1H 缺19根/15m缺105根)。改为按"本页实际最老的那根"再退一格。
+            cur_end = min(new) - dur
+        else:
+            cur_end = win_start - dur
     return [(k, *st[k]) for k in sorted(st) if start_ts <= k <= end_ts]
 
 
