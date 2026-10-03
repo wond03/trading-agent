@@ -1,24 +1,35 @@
-# WEEX 公开行情接口探测 (在 GitHub Actions 上跑; 沙盒无法访问 weex)
+# WEEX 第二轮探测: symbol 格式 / 合约接口 / 黄金标的
 import requests
 
-HOSTS = ["https://api-spot.weex.com", "https://api.weex.com", "https://api-contract.weex.com"]
-PATHS = [
-    "/",
-    "/api/v2/market/tickers",
-    "/api/v2/market/ticker?symbol=BTCUSDT",
-    "/api/v2/market/candles?symbol=BTCUSDT&period=1h&limit=3",
-    "/api/v2/market/klines?symbol=BTCUSDT&period=1h&limit=3",
-    "/api/v2/market/symbols",
-    "/api/v2/market/depth?symbol=BTCUSDT&limit=5",
-    "/api/v2/public/time",
-    "/capi/v2/market/candles?symbol=BTCUSDT&granularity=1h&limit=3",
-    "/api/v1/market/candles?symbol=BTCUSDT&period=1h&limit=3",
+SPOT = "https://api-spot.weex.com"
+CON = "https://api-contract.weex.com"
+TESTS = [
+    # 现货 K线: symbol 各种写法
+    (SPOT, "/api/v2/market/candles?symbol=btcusdt&period=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=BTC-USDT&period=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=BTC_USDT&period=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=BTCUSDT_SPBL&period=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=cmt_btcusdt&period=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=BTCUSDT&interval=1h&limit=3"),
+    # 现货 标的清单 / 行情
+    (SPOT, "/api/v2/market/tickers"),
+    (SPOT, "/api/v2/market/coins"),
+    (SPOT, "/api/v2/market/symbol/list"),
+    (SPOT, "/api/v2/public/symbols"),
+    # 合约
+    (CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=3"),
+    (CON, "/capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1H&limit=3"),
+    (CON, "/capi/v2/market/candles?symbol=BTCUSDT&granularity=1H&limit=3"),
+    (CON, "/capi/v2/market/tickers"),
+    (CON, "/capi/v2/market/contracts"),
+    # 黄金候选
+    (CON, "/capi/v2/market/candles?symbol=cmt_xautusdt&granularity=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=PAXGUSDT&period=1h&limit=3"),
+    (SPOT, "/api/v2/market/candles?symbol=XAUTUSDT&period=1h&limit=3"),
 ]
-for h in HOSTS:
-    for p in PATHS:
-        try:
-            r = requests.get(h + p, timeout=15)
-            body = r.text.replace("\n", " ")[:300]
-            print(f"[{r.status_code}] {h}{p}\n    {body}", flush=True)
-        except Exception as e:
-            print(f"[ERR] {h}{p} :: {type(e).__name__} {str(e)[:120]}", flush=True)
+for host, p in TESTS:
+    try:
+        r = requests.get(host + p, timeout=15)
+        print(f"[{r.status_code}] {host}{p}\n    {r.text.replace(chr(10),' ')[:300]}", flush=True)
+    except Exception as e:
+        print(f"[ERR] {host}{p} :: {type(e).__name__} {str(e)[:100]}", flush=True)
