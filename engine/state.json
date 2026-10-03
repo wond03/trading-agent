@@ -21,15 +21,15 @@
   }
  ],
  "daily": {
-  "date": "2026-10-03",
-  "trades": 2,
+  "date": "2026-10-04",
+  "trades": 0,
   "by_profile": {
-   "4-1-15": 2
+   "4-1-15": 0
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791042340.3656735,
- "run_count_today": 100,
+ "last_run_ts": 1791043262.0322833,
+ "run_count_today": 1,
  "history": [
   {
    "type": "signal",
