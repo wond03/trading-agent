@@ -173,39 +173,67 @@ def why_no_signal(ee):
         return "卡⑤ 触发: 回踩之后 15m 未再出现同向 CHoCH"
     return "⑤之后被拦(如止损距离<=0)"
 
+def _hist_inst(h):
+    """平仓记录品种: 新记录带 inst, 旧记录从 detail 兜底解析"""
+    s = h.get("inst") or h.get("detail") or ""
+    return "BTC" if "BTC" in s else "黄金"
+
+
+def _hist_dir(h):
+    """平仓记录方向: 新记录带 direction, 旧记录从 detail 兜底解析"""
+    return h.get("direction") or ("long" if "LONG" in (h.get("detail") or "") else "short")
+
+
 def build_daily_report(state, now_bj):
-    """每日日报 (北京时间早8点后首次运行推送) —— 2026-10-03 精简版: 一行一事、去内部术语"""
+    """每日日报 (北京时间早8点后首次运行推送)
+    2026-10-03 定版: ① 24h战绩(总计 + 分品种 笔数/方向/盈亏/胜率) ② 持仓 ③ 诊断"""
     day = now_bj.strftime("%m-%d")
     hist = [h for h in state.get("history", []) if time.time() - h.get("ts", 0) < 86400]
-    sigs = [h for h in hist if h["type"] == "signal"]
-    exs = [h for h in hist if h["type"] == "exit"]
+    # 只统计真实成交的平仓(历史遗留的"未成交·作废"记录不计入笔数/胜率)
+    exs = [h for h in hist if h["type"] == "exit"
+           and not h.get("void") and "作废" not in (h.get("detail") or "")]
     pos = state.get("positions", [])
 
     L = [f"🌙 **暗夜猎手 · 日报 {day}**", ""]
 
-    # ① 持仓(最关键, 置顶)
+    # ① 24h 战绩(核心) —— 总计 + 分品种
+    if exs:
+        pnl = sum(h.get("pnl", 0) for h in exs)
+        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
+        L.append(f"**📊 24h** {len(exs)}笔 · 胜{wins}/{len(exs)} · **{pnl:+.2f}U**")
+        agg = {}
+        for h in exs:
+            a = agg.setdefault(_hist_inst(h), {"n": 0, "w": 0, "p": 0.0, "L": 0, "S": 0})
+            a["n"] += 1
+            a["w"] += 1 if h.get("pnl", 0) > 0 else 0
+            a["p"] += h.get("pnl", 0)
+            if _hist_dir(h) == "long":
+                a["L"] += 1
+            else:
+                a["S"] += 1
+        for nm in ("BTC", "黄金"):
+            a = agg.get(nm)
+            if not a:
+                continue
+            _d = (f"多{a['L']}" if a["L"] else "") + (f"空{a['S']}" if a["S"] else "")
+            L.append(f"· **{nm}** {a['n']}笔 {_d} | {a['p']:+.2f}U | 胜{a['w']}/{a['n']}")
+    else:
+        L.append("**📊 24h** 无平仓")
+
+    # ② 持仓(排在战绩之后)
+    L.append("")
     if pos:
-        for p in pos:
+        for i, p in enumerate(pos):
             nm = "BTC" if "BTC" in p["inst"] else "黄金"
             sd = "做多" if p["direction"] == "long" else "做空"
             _ex = " | 已挂单✅" if (p.get("tp_algo_id") or p.get("sl_algo_id")) else ""
-            L.append(f"**💰 持仓** {nm}{sd} | 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} "
+            tag = "**💰 持仓** " if i == 0 else "　"
+            L.append(f"{tag}{nm}{sd} | 进{fmt_price(p['entry'])} 损{fmt_price(p['sl'])} "
                      f"标{fmt_price(p['tp'])}{_ex}")
     else:
         L.append("**💰 持仓** 空仓")
 
-    # ② 24h 战绩(信号/出场/胜率/盈亏 合并一行)
-    if exs:
-        pnl = sum(h.get("pnl", 0) for h in exs)
-        wins = sum(1 for h in exs if h.get("pnl", 0) > 0)
-        L.append(f"**📊 24h** 信号{len(sigs)} 出场{len(exs)} | 胜{wins}/{len(exs)} | **{pnl:+.2f}U**")
-    else:
-        L.append(f"**📊 24h** 信号{len(sigs)} | 无平仓")
-
-    # ③ 24h 信号明细 / ④ 市场状态 —— 2026-10-03 用户反馈"碍眼", 从日报移除
-    #    (信号触发时本来就实时单独推送; 盘面趋势/FVG/截取 需要时随时问)
-
-    # ⑤ 诊断(一行结论)
+    # ③ 诊断(一行结论)
     try:
         from auto_calibrator import analyze
         d = analyze(state.get("history", []))
@@ -213,7 +241,7 @@ def build_daily_report(state, now_bj):
     except Exception as e:
         print(f"[诊断异常] {e}")
 
-    L += ["", f"_{'模拟观察' if DRY_RUN else '模拟盘'} · {C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_"]
+    L += ["", f"_{C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_"]
     return "\n".join(L)
 
 def save_state(s):
