@@ -202,18 +202,8 @@ def build_daily_report(state, now_bj):
     else:
         L.append(f"**📊 24h** 信号{len(sigs)} | 无平仓")
 
-    # ③ 24h 信号明细(最多4条, 近期在后)
-    if sigs:
-        L += ["", "**🎯 信号**"]
-        for h in sigs[-4:]:
-            pf = C.STRATEGY_PROFILES.get(h.get("profile", ""), {}).get("label", h.get("profile", ""))
-            L.append(f"· {f'[{pf}] ' if pf else ''}{h['detail']}")
-
-    # ④ 市场状态
-    ms = state.get("market_snapshot", [])
-    if ms:
-        L += ["", "**🌐 市场**"]
-        L.extend(ms)
+    # ③ 24h 信号明细 / ④ 市场状态 —— 2026-10-03 用户反馈"碍眼", 从日报移除
+    #    (信号触发时本来就实时单独推送; 盘面趋势/FVG/截取 需要时随时问)
 
     # ⑤ 诊断(一行结论)
     try:
