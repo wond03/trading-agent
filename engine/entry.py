@@ -56,13 +56,10 @@ class EntryEngine:
             return None
         mid = (leg_hi + leg_lo) / 2.0                             # 斐波 50% 分界
         premium = px >= mid
+        # ★2026-10-04 用户裁定: 【溢价/折价闸门已删除】—— 不再用斐波50%拦截开单。
+        #   斐波腿/50% 仅保留作信息展示与 reason 文案, 不参与准入。
         steps["zone"] = {"high": round(leg_hi, 4), "low": round(leg_lo, 4), "mid": round(mid, 4),
-                         "premium": bool(premium),
-                         "premium_ok": bool(premium if htf_trend == "down" else (not premium))}
-        if htf_trend == "down" and not premium:
-            return None                                           # 做空必须在溢价区(50%上方)
-        if htf_trend == "up" and premium:
-            return None                                           # 做多必须在折价区(50%下方)
+                         "premium": bool(premium), "premium_ok": True}
         # (可选门槛) 是否仍要求"扫到止损密集区" —— 视频法不需要, 由 C.REQUIRE_SWEEP 控制
         if C.REQUIRE_SWEEP:
             _opp = ("BOS_down", "CHoCH_down") if htf_trend == "up" else ("BOS_up", "CHoCH_up")
