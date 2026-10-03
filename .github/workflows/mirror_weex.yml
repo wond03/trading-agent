@@ -1,0 +1,31 @@
+name: mirror-weex
+# 把 WEEX 合约K线抓下来做成"数据镜像"(沙盒连不上 weex, 靠它搬运)
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "回补天数(首次建议120)"
+        required: false
+        default: "120"
+  schedule:
+    - cron: "40 5 * * *"      # 每天一次, 补最近数据
+permissions:
+  contents: read
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 抓取 WEEX 合约K线
+        run: python tools/weex_cache.py mirror --days ${{ github.event.inputs.days || '120' }}
+      - name: 上传制品(供沙盒 pull)
+        uses: actions/upload-artifact@v4
+        with:
+          name: weex-mirror
+          path: |
+            data/weex/*.json
+          retention-days: 30
