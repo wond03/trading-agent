@@ -10,7 +10,8 @@ def analyze(history, margin_per_trade=5.0):
     exs = [h for h in history if h.get("type") == "exit"]
     n = len(exs)
     if n == 0:
-        return {"ok": False, "summary": f"信号{len(sigs)}个, 尚无平仓样本(持仓中或未触发)", "advice": []}
+        return {"ok": False, "summary": f"信号{len(sigs)}个, 尚无平仓样本(持仓中或未触发)",
+                "brief": f"尚无平仓样本(信号{len(sigs)}条)", "advice": []}
 
     pnls = [h.get("pnl", 0) for h in exs]
     wins = [p for p in pnls if p > 0]
@@ -26,6 +27,14 @@ def analyze(history, margin_per_trade=5.0):
     for p in pnls:
         streak = streak + 1 if p <= 0 else 0
         mx = max(mx, streak)
+
+    # 一行结论(日报用, 2026-10-03)
+    if wr >= be_wr:
+        brief = f"{n}笔 · 期望为正(胜率{wr:.0%}≥{be_wr:.0%})"
+    else:
+        brief = f"{n}笔 · 期望为负(胜率{wr:.0%}<{be_wr:.0%}) · 建议降杠杆/放宽止损"
+    if n < 10:
+        brief += f" · 样本偏少,再攒{10-n}笔"
 
     advice = []
     if n < 10:
@@ -45,7 +54,7 @@ def analyze(history, margin_per_trade=5.0):
                f"均盈{avg_win:+.1f}U 均亏{avg_loss:+.1f}U | 累计{total:+.1f}U | 最大连亏{mx}")
     return {"ok": True, "n": n, "wr": wr, "be_wr": be_wr, "total": total,
             "avg_win": avg_win, "avg_loss": avg_loss, "max_loss_streak": mx,
-            "summary": summary, "advice": advice}
+            "summary": summary, "brief": brief, "advice": advice}
 
 def weekly_report(state):
     """周报格式(供企微推送)"""
