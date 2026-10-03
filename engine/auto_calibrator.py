@@ -7,7 +7,9 @@ import json, os, statistics
 def analyze(history, margin_per_trade=5.0):
     """返回诊断结果 dict"""
     sigs = [h for h in history if h.get("type") == "signal"]
-    exs = [h for h in history if h.get("type") == "exit"]
+    # 只统计真实成交的平仓: "未成交·作废"记录(pnl=0)会拉低胜率、虚增样本
+    exs = [h for h in history if h.get("type") == "exit"
+           and not h.get("void") and "作废" not in (h.get("detail") or "")]
     n = len(exs)
     if n == 0:
         return {"ok": False, "summary": f"信号{len(sigs)}个, 尚无平仓样本(持仓中或未触发)",
