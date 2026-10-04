@@ -164,7 +164,10 @@ def why_no_signal(ee):
         return "卡① 背景: 1H 结构方向未确立"
     if not st.get("trigger"):
         return "卡② 入场: 15m 未回踩到【顺势方向】的 FVG"
-    return "②之后被拦(止损/止盈/RR 不达标)"
+    _it = st.get("internal")
+    if _it and not _it.get("ok"):
+        return f"卡②.5 内部结构未确认(需 逆势CHoCH→顺势BOS): {_it.get('why') or '未通过'}"
+    return "②之后被拦(止损/止盈不达标)"
 
 def _hist_inst(h):
     """平仓记录品种: 新记录带 inst, 旧记录从 detail 兜底解析"""
