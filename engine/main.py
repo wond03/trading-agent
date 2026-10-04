@@ -8,8 +8,8 @@ from structure import StructureEngine, Candle
 from liquidity import LiquidityEngine
 from entry import EntryEngine
 from exits import ExitEngine, Position
-from risk import RiskManager, size_fixed_margin
-from okx_client import OkxClient
+from risk import RiskManager
+from weex_broker import WeexBroker       # ★2026-10-04 用户裁定: 交易已切到 WEEX 模拟盘, 不再用 OKX
 import weex_client               # ★2026-10-03 用户裁定: 信号/回测数据源 = WEEX 合约; 模拟盘交易仍在 OKX
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -265,26 +265,24 @@ def _fetch_gate(inst_id, limit, tf="1h"):
     return _out
 
 def fetch_candles(client, inst_id, limit=300, tf=None):
-    """数据源路由 + 故障自愈 (2026-10-03 用户裁定: 信号用【WEEX 合约】, 模拟盘交易仍在 OKX)
-    链路: WEEX 合约 → OKX → Gate 现货, 逐级自愈; 每一级都会打印实际用的源"""
+    """数据源路由 + 故障自愈 (★2026-10-04 用户裁定: 不再用 OKX)
+    链路: WEEX 合约 →(重试一次)→ Gate 现货(最后兜底; XAU 走 PAXG 代理, 有基差, 日志会标注)"""
     tf = tf or C.BASE_TF
     gate_tf = {"1H": "1h", "4H": "4h", "15m": "15m", "5m": "5m"}.get(tf, "1h")
     if os.environ.get("DATA_SOURCE") == "gate":          # 仅离线诊断用
         return _fetch_gate(inst_id, limit, gate_tf)
     # ① WEEX 合约 (与回测同一口径)
-    try:
-        rows = weex_client.get_candles(inst_id, tf, limit)
-        if rows:
-            return [Candle(*r) for r in rows]
-        raise RuntimeError("返回空")
-    except Exception as e:
-        print(f"[自愈] WEEX({tf})失败({type(e).__name__}): {str(e)[:120]} → 切 OKX")
-    # ② OKX (交易所在所, 兼作备用)
-    try:
-        return client.get_candles(inst_id, tf, limit)
-    except Exception as e:
-        print(f"[自愈] OKX({tf})失败({type(e).__name__}) → 切 Gate")
-    # ③ Gate 现货 (最后兜底; XAU 走 PAXG 代理, 与前两级有基差)
+    for _try in range(2):
+        try:
+            rows = weex_client.get_candles(inst_id, tf, limit)
+            if rows:
+                return [Candle(*r) for r in rows]
+            raise RuntimeError("返回空")
+        except Exception as e:
+            print(f"[自愈] WEEX({tf})第{_try + 1}次失败({type(e).__name__}): {str(e)[:120]}")
+            time.sleep(1.0)
+    # ② Gate 现货 (最后兜底)
+    print(f"[自愈] ⚠️ 降级到 Gate 现货({tf}) —— 黄金为 PAXG 代理, 与 WEEX 有基差")
     k = _fetch_gate(inst_id, limit, gate_tf)
     print(f"[自愈] Gate 备用源成功: {len(k)}根")
     return k
@@ -373,6 +371,20 @@ def real_margin_per_contract(client, inst_id, price, td_mode="isolated", state=N
     print(f"[保证金] {inst_id} 取不到实际占用, 退回 名义÷杠杆 估算")
     return None
 
+def size_for_weex(broker, inst_id, price, leverage=None):
+    """★2026-10-04 WEEX 口径仓位:
+       quantity = 【币的数量】 = 目标保证金 × 杠杆 ÷ 价格, 按 quantityPrecision 向下取整。
+       返回形状与 OKX 版一致(供 format_signal / 推送复用)。
+       杠杆: sim 接口不能设杠杆 → 用 state 里学到的值, 否则用 config 的 WEEX_LEVERAGE。"""
+    lev = leverage or C.WEEX_LEVERAGE.get(inst_id, 100)
+    mgn = C.WEEX_MARGIN_USD
+    _raw = (mgn * lev) / float(price)
+    qty = broker.round_sz(inst_id, _raw)
+    notional = qty * float(price)
+    return {"lots": qty, "notional": round(notional, 2), "margin": round(notional / lev, 2),
+            "leverage": lev, "margin_src": "weex", "raw_qty": round(_raw, 8),
+            "risk_amount": round(notional / lev, 2), "stop_pct": round(100.0 / lev, 2)}
+
 
 # ---------- 交易所端止盈止损 (reduceOnly 条件单) ----------
 def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
@@ -412,6 +424,9 @@ def _place_exchange_tpsl(client, inst_id, pos_side, sz, td_mode, tp, sl):
     ★严格校验(2026-10-02): 必须 code=0 且 sCode=0 且 algoId 非空 才算挂上; 否则不写id并记入err(防"假成功")
     返回 {"tp_algo_id":.., "sl_algo_id":.., "err":[...]}"""
     out = {"tp_algo_id": None, "sl_algo_id": None, "err": []}
+    if not getattr(client, "supports_algo", True):
+        # ★WEEX(2026-10-04): 止盈/止损是【下单时内联】提交的, 无独立条件单接口 → 这里不做事, 也不算失败
+        return out
     for key, fn, px in (("tp_algo_id", client.place_tp_order, tp), ("sl_algo_id", client.place_sl_order, sl)):
         _lb = "TP" if key.startswith("tp") else "SL"
         try:
@@ -489,7 +504,7 @@ def _last_realized(client, inst_id, pos_side):
 def run_once():
     state = load_state()
     print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=两级别(1H+15m)+开仓当根不判出场")
-    print(f"[数据源] 信号/回测 = WEEX 合约 ({weex_client.HOST}) | 交易 = OKX 模拟盘 | DRY_RUN={DRY_RUN}")
+    print(f"[数据源] 信号/回测 = WEEX 合约 ({weex_client.HOST}) | 交易 = WEEX 模拟盘(paper) | DRY_RUN={DRY_RUN}")
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
     last = state.get("last_run_ts", 0)
@@ -512,7 +527,21 @@ def run_once():
         _bp = state["daily"].get("by_profile", {})
         state["daily"]["by_profile"] = {_only: sum(v for v in _bp.values() if isinstance(v, int))}
 
-    client = OkxClient(simulated=True)
+    # ★2026-10-04 用户裁定: 交易客户端 = WEEX 模拟盘(不再用 OKX)。
+    #   未配密钥 / 鉴权异常 → 本轮只打印、不做任何交易(避免空转报错或误下单)
+    client = WeexBroker()
+    if not client.configured:
+        print("[跳过] WEEX 模拟盘密钥未配置(WEEX_API_KEY/WEEX_API_SECRET/WEEX_API_PASSPHRASE) → 本轮不做任何交易")
+        return
+    try:
+        _ping = client.ping()
+        print(f"[交易] WEEX 模拟盘自检: {json.dumps(_ping, ensure_ascii=False)[:500]}")
+        if _ping.get("balance_http") != 200:
+            print("[跳过] WEEX 鉴权或余额查询异常 → 本轮不做任何交易")
+            return
+    except Exception as e:
+        print(f"[交易] WEEX 自检失败 {type(e).__name__}: {e} → 本轮不做任何交易")
+        return
 
     # ★2026-10-03 图表推送测试开关: PUSH_TEST=1 → 只推一张测试图, **不做任何交易**(提前返回, 不改状态)
     if os.environ.get("PUSH_TEST") == "1":
@@ -690,17 +719,21 @@ def run_once():
                 if _np.get("tp_algo_id"): _plist.append(f"止盈 {fmt_price(_tpx)}")
                 if _np.get("sl_algo_id"): _plist.append(f"止损 {fmt_price(_slx)}")
                 _ptxt = ("已补挂 " + " / ".join(_plist)) if _plist else "⚠️ 未挂上任何保护单"
+                if not getattr(client, "supports_algo", True):
+                    # ★WEEX: 无独立条件单接口 → 交易所端没有保护单, 止损由引擎侧按K线执行
+                    _ptxt = f"⚠️ 交易所端无保护单（WEEX 无独立条件单）；引擎侧止损 {fmt_price(_slx)}，请留意"
                 add("巡检", f"🛡️ **接管交易所游离持仓 · {_nmx} {_dirx.upper()}**\n"
                              f"> {_sz}张 @{_epx:,.1f}（交易所均价）· 杠杆 {_levx}x\n"
                              f"> {_ptxt}" + ("" if not _erlx else f"\n> ⚠️ 交易所回执：{'；'.join(_erlx)}"))
-        # 顺带清理"无持仓"的孤立止盈/止损挂单
-        try:
-            for _a in (client.get_algo_pending().get("data") or []):
-                if _lp.get((_a.get("instId"), _a.get("posSide")), 0) <= 0:
-                    client.cancel_algo(_a.get("instId"), _a.get("algoId"))
-                    print(f"[清理孤立挂单] {_a.get('instId')} {_a.get('algoId')}")
-        except Exception as e:
-            print(f"[孤立挂单清理异常] {e}")
+        # 顺带清理"无持仓"的孤立止盈/止损挂单(仅支持独立条件单的交易所; WEEX 无此接口)
+        if getattr(client, "supports_algo", True):
+            try:
+                for _a in (client.get_algo_pending().get("data") or []):
+                    if _lp.get((_a.get("instId"), _a.get("posSide")), 0) <= 0:
+                        client.cancel_algo(_a.get("instId"), _a.get("algoId"))
+                        print(f"[清理孤立挂单] {_a.get('instId')} {_a.get('algoId')}")
+            except Exception as e:
+                print(f"[孤立挂单清理异常] {e}")
 
     # ---- 同品种同向只留一个仓 (用户规则): 多余同向仓按"等级优先"清理 ----
     if not DRY_RUN:
@@ -794,68 +827,79 @@ def run_once():
                         ok = False
                     if ok:
                         _ps = "long" if sig.direction == "long" else "short"
-                        _td = sym_cfg.get("td_mode", "isolated")
-                        # 杠杆: 各品种实际上限不同(BTC=100, XAU=50); 写死100会被OKX拒(59102)
-                        want_lev = C.INST_LEVER.get(inst_id, C.LEVERAGE_FIXED)
-                        used_lev = resolve_leverage(client, inst_id, want_lev, _td, _ps) if not DRY_RUN else want_lev
-                        size = size_fixed_margin(px, inst_id, leverage=used_lev,
-                                                 mgn_per_contract=(None if DRY_RUN else
-                                                                   real_margin_per_contract(client, inst_id, px, _td, state)))
-                        print(f"[仓位] {inst_id} {size['lots']}张 名义{size['notional']}U "
-                              f"保证金{size['margin']}U (来源={size.get('margin_src')})")
+                        _psW = "LONG" if sig.direction == "long" else "SHORT"
+                        # ★WEEX: sim 接口不能设杠杆 → 用 state 里学到的, 否则用 config(用户 App 里设的倍数)
+                        used_lev = (state.get("weex_leverage") or {}).get(inst_id) or C.WEEX_LEVERAGE.get(inst_id, 100)
+                        if DRY_RUN:
+                            size = {"lots": round((C.WEEX_MARGIN_USD * used_lev) / float(px), 8),
+                                    "notional": round(C.WEEX_MARGIN_USD * used_lev, 2),
+                                    "margin": C.WEEX_MARGIN_USD, "leverage": used_lev, "margin_src": "dry_run"}
+                        else:
+                            size = size_for_weex(client, inst_id, px, used_lev)
+                        print(f"[仓位] {inst_id} qty={size['lots']} 名义{size['notional']}U "
+                              f"保证金{size['margin']}U (杠杆{used_lev}x, 来源={size.get('margin_src')})")
                         sl_use, liq_px = adaptive_sl(sig.entry, sig.direction, sig.sl, sig.entry, used_lev)
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
                         _opened = False
                         if not DRY_RUN:
                             side = "buy" if sig.direction == "long" else "sell"
-                            resp = client.place_order(inst_id, side, size["lots"], td_mode=_td, pos_side=_ps)
+                            # ★止盈/止损【内联】到本次下单(WEEX 无独立条件单接口) → 用信号算好的 tp/sl_use
+                            resp = client.place_order(inst_id, side, size["lots"], pos_side=_psW,
+                                                      ord_type="market", tp=sig.tp, sl=sl_use)
                             dd = (resp.get("data") or [{}])[0]
-                            print(f"[下单] {inst_id} {side} {size['lots']} lev={used_lev} -> {json.dumps(resp, ensure_ascii=False)[:280]}")
+                            print(f"[下单] {inst_id} {side} qty={size['lots']} lev={used_lev}x "
+                                  f"tp={sig.tp} sl={sl_use} -> {json.dumps(resp, ensure_ascii=False)[:280]}")
                             # ★核心1: 同时校验 code 与 订单级 sCode(被拒单不能记持仓)
                             if resp.get("code") == "0" and dd.get("sCode") == "0":
                                 ordid = dd.get("ordId")
-                                # ★核心2: 市价单可能"已接受但未成交"(真成交才算开仓), 轮询确认
-                                stt, fl, avg = "live", 0.0, sig.entry
-                                for _ in range(5):
+                                # 成交确认: 先按订单号查(走历史委托反查), 再兜底查持仓
+                                fl, avg = 0.0, sig.entry
+                                for _ in range(8):
                                     od = (client.get_order(inst_id, ordid).get("data") or [{}])[0]
-                                    stt = od.get("state"); fl = float(od.get("accFillSz") or 0); avg = float(od.get("avgPx") or sig.entry)
-                                    if fl > 0 or stt in ("filled", "partially_filled", "canceled"):
+                                    fl = float(od.get("accFillSz") or 0)
+                                    avg = float(od.get("avgPx") or 0) or sig.entry
+                                    if fl > 0:
                                         break
                                     time.sleep(0.8)
+                                if fl <= 0:
+                                    _pdw = client.get_positions(inst_id).get("data") or []
+                                    if _pdw:
+                                        fl = float(_pdw[0].get("pos") or 0)
+                                        avg = float(_pdw[0].get("avgPx") or sig.entry)
                                 if fl > 0:
-                                    sl_fill = adaptive_sl(avg, sig.direction, sig.sl, sig.entry, used_lev)[0]  # 止损按"真实成交价"平移重算
-                                    tp_fill = tp_from_rr(avg, sig.direction, sl_fill)                        # 止盈 = 1:TP_RR(同口径)
+                                    # WEEX: size = 币的数量; tp/sl 已随下单内联提交, 沿用信号那组价位
                                     posobj = {"inst": inst_id, "direction": sig.direction,
-                                              "entry": avg, "sl": sl_fill, "tp": tp_fill,
+                                              "entry": avg, "sl": sl_use, "tp": sig.tp,
                                               "size": fl, "ratio": 1.0,
                                               "risk_free": False, "tp1_hit": False,
                                               "leverage": used_lev, "profile": pname,
                                               "run_id": state["last_run_ts"],
                                               "opened": int(time.time())}
-                                    # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
-                                    posobj.update(_place_exchange_tpsl(client, inst_id, _ps, fl, _td, tp_fill, sl_fill))
+                                    # ★杠杆自动校正: 用持仓返回的 leverage 更新 state(下次算数量更准)
+                                    try:
+                                        _pd2 = (client.get_positions(inst_id).get("data") or [{}])[0]
+                                        _lv2 = float(_pd2.get("lever") or 0)
+                                        _mg2 = float(_pd2.get("margin") or 0)
+                                        if _lv2 > 0:
+                                            state.setdefault("weex_leverage", {})[inst_id] = _lv2
+                                            posobj["leverage"] = _lv2
+                                            print(f"[杠杆校正] {inst_id} → {_lv2}x (持仓实收保证金 {_mg2:.2f}U)")
+                                    except Exception:
+                                        pass
                                     # ★爆仓价: 取【交易所返回的 liqPx】(用户裁定: 不本地臆算; 取不到就如实说明)
                                     _lqd = _ex_liqpx(client, inst_id, _ps)
                                     posobj["liq_px"] = _lqd
                                     state["positions"].append(posobj)
-                                    _erl2 = posobj.get("err") or []
-                                    line += (f"\n\n> ✅ 已开仓 {fl}张 @{avg:,.1f} · 订单 {ordid}"
-                                             + (f"\n> 🎯 交易所已挂 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}" if not _erl2 else
-                                                f"\n> ❌ 交易所挂单**未挂上** {'；'.join(_erl2)}（本地记录 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_fill)}，请手动确认）")
+                                    line += (f"\n\n> ✅ 已开仓 {fl} @{avg:,.1f} · 订单 {ordid}"
+                                             + f"\n> 🎯 已内联提交 止盈 {fmt_price(sig.tp)} / 止损 {fmt_price(sl_use)}（交易所端）"
                                              + (f"\n> 💥 爆仓价 {fmt_price(_lqd)}（交易所）" if _lqd
                                                 else "\n> 💥 爆仓价：交易所未返回（不本地估算）"))
                                     state["daily"]["trades"] += 1
                                     state["daily"]["by_profile"][pname] = state["daily"]["by_profile"].get(pname, 0) + 1
                                     _opened = True
                                 else:
-                                    # 成交慢(尤其XAU演示盘) → 不撤单, 转"挂单待成交", 下轮巡检确认
-                                    state.setdefault("pending_entries", []).append({
-                                        "inst": inst_id, "direction": sig.direction, "size": size["lots"],
-                                        "ord_id": ordid, "tp": sig.tp, "profile": pname, "lev": used_lev,
-                                        "sl": sig.sl,
-                                        "signal_entry": sig.entry, "ts": int(time.time())})
-                                    line += (f"\n\n> ⏳ 已挂单待成交（状态{stt}）· 订单 {ordid}"
-                                             f"\n> 演示盘成交慢，下轮巡检确认成交后再建仓")
+                                    line += (f"\n\n> ⏳ 已提交但未确认成交 · 订单 {ordid}"
+                                             f"\n> WEEX 模拟盘无撤单接口，下轮巡检按持仓确认")
                             else:
                                 line += f"\n\n> ❌ 开仓失败 [{dd.get('sCode') or resp.get('code')}] {dd.get('sMsg') or resp.get('msg')}"
                         else:
@@ -895,7 +939,8 @@ def run_once():
                         continue
                     # ★ 自愈: 确保交易所端止盈/止损挂单存在(缺哪条补哪条)
                     #   ★严格校验: 必须 code=0 且 sCode=0 且拿到 algoId 才算成功; 否则绝不推"已挂"
-                    if not DRY_RUN:
+                    #   ★WEEX(2026-10-04): 止盈/止损随下单内联, 无独立条件单接口 → 整段跳过
+                    if not DRY_RUN and getattr(client, "supports_algo", True):
                         _psh = "long" if p["direction"] == "long" else "short"
                         _tdh = sym_cfg.get("td_mode", "isolated")
                         _fixed, _failed = [], []
@@ -1008,8 +1053,10 @@ def run_once():
                         elif act[0] == "MOVE_SL":
                             p["sl"] = pos.sl
                             p["risk_free"] = pos.risk_free
-                            # 止损移动 → 撤旧挂新, 保持交易所与报表一致
-                            if not DRY_RUN and p.get("sl_algo_id"):
+                            # 止损移动 → 撤旧挂新(仅对支持独立条件单的交易所)
+                            # ★WEEX(2026-10-04): 无独立条件单 → 新止损由【引擎侧按K线平仓】执行;
+                            #   交易所端仍保留"下单时内联的原始止损"作为极端兜底。
+                            if not DRY_RUN and getattr(client, "supports_algo", True) and p.get("sl_algo_id"):
                                 try:
                                     client.cancel_algo(inst_id, p["sl_algo_id"])
                                 except Exception as e:
