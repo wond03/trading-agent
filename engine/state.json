@@ -15,22 +15,6 @@
    "run_id": 1791091664.2827482,
    "opened": 1791091669,
    "liq_px": 4175.9
-  },
-  {
-   "inst": "BTC-USDT-SWAP",
-   "direction": "long",
-   "entry": 85243.2,
-   "sl": 85055.451,
-   "tp": 85594.998,
-   "size": 0.0057,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 100.0,
-   "profile": "1-15",
-   "run_id": 1791107139.1179528,
-   "opened": 1791107143,
-   "liq_px": 84644.7
   }
  ],
  "daily": {
@@ -41,8 +25,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791107139.1179528,
- "run_count_today": 80,
+ "last_run_ts": 1791108055.365318,
+ "run_count_today": 81,
  "history": [
   {
    "type": "signal",
@@ -246,6 +230,15 @@
    "ts": 1791107143.881634,
    "profile": "1-15",
    "detail": "BTC做多 · 进85,235 损85,055 标85,595 · RR1:2"
+  },
+  {
+   "type": "exit",
+   "ts": 1791108060.207839,
+   "profile": "1-15",
+   "pnl": -0.28,
+   "entry": 85243.2,
+   "exit": 85194.7,
+   "detail": "[1-15] BTC LONG -0.28U"
   }
  ],
  "pushed_signals": [
@@ -259,8 +252,8 @@
  ],
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
-  "· **BTC** 上涨 | FVG 84,872~84,967 | 扫上84,995(1点)",
-  "· **黄金** 下跌 | FVG 4,140~4,140 | 扫上4,141(2点)"
+  "· **BTC** 上涨 | FVG 84,950~85,151 | 扫上84,995(1点)",
+  "· **黄金** 下跌 | FVG 4,139~4,140 | 扫上4,141(2点)"
  ],
  "pushed_watch": [],
  "fail_streak": 0,
