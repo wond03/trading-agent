@@ -21,7 +21,7 @@ CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "10000"))   # 账户资金(可
 # ---------- 双方案配置 ----------
 PROFILES = getattr(C, "STRATEGY_PROFILES", {
     "4-1-15": {"label": "4-1-15", "base_tf": C.BASE_TF, "htf": "4H",
-               "swing_left": 2, "swing_right": 2}})
+               "swing_left": 4, "swing_right": 4}})
 # 引擎模块运行时读取 config 全局, 故按方案临时切换这组参数
 _PROFILE_KEYS = ("BASE_TF", "SWING_LEFT", "SWING_RIGHT")
 
