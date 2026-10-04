@@ -20,7 +20,8 @@ _STATE_MAP = {"FILLED": "filled", "PARTIALLY_FILLED": "partially_filled",
 class WeexBroker:
     """模拟盘交易适配器(形状对齐 OkxClient); supports_algo=False 表示无独立条件单接口"""
 
-    supports_algo = False
+    # ★2026-10-05: 找到 WEEX 官方条件单接口 → 打开"自愈补挂/读回自检"(不再内联-only)
+    supports_algo = True
     HOST = "api-contract.weex.com (sim)"
 
     def __init__(self, api_key=None, secret=None, passphrase=None):
@@ -112,21 +113,67 @@ class WeexBroker:
     def set_leverage(self, inst_id, lever, mgn_mode="isolated", pos_side=None):
         return {"code": "0", "data": [{"lever": str(lever)}], "msg": "WEEX sim 无设杠杆接口(以 App 设置为准)"}
 
-    # ---------- 条件单: WEEX 用内联方式 → 这些一律空实现 ----------
-    def place_tp_order(self, *a, **k):
-        return {"code": "1", "msg": "WEEX 无独立止盈接口(下单时内联 tpTriggerPrice)"}
-
-    def place_sl_order(self, *a, **k):
-        return {"code": "1", "msg": "WEEX 无独立止损接口(下单时内联 slTriggerPrice)"}
-
-    def get_algo_pending(self, inst_type="SWAP", inst_id=None):
-        return {"code": "0", "data": []}
+    # ---------- 条件单 ★2026-10-05: 已找到 WEEX 条件单接口, 改为真实实现 ----------
+    #   openAlgoOrders(查) / algoOrder(补挂/撤) / modifyTpSlOrder(改价)
+    def algo_orders(self, inst_id=None):
+        """交易所端真实条件单(原始行)"""
+        st, rows = self.t.algo_orders(inst_id)
+        return {"code": "0", "data": rows}
 
     def algo_ids(self, inst_id):
-        return set()
+        """该品种当前所有条件单的 algoId 集合(给 main 的自愈逻辑用)"""
+        st, rows = self.t.algo_orders(inst_id)
+        return {str(x.get("algoId")) for x in rows if x.get("algoId")}
+
+    def tp_sl_open(self, inst_id, pos_side=None):
+        """★读回交易所真实保护单: {"tp":行, "sl":行}(无则 None)。用于自检/对账。"""
+        st, rows = self.t.algo_orders(inst_id)
+        out = {"tp": None, "sl": None}
+        ps = (pos_side or "").upper()
+        for x in rows:
+            if ps and (x.get("positionSide") or "").upper() != ps:
+                continue
+            ot = (x.get("orderType") or "").upper()
+            if ot == "TAKE_PROFIT_MARKET" and out["tp"] is None:
+                out["tp"] = x
+            elif ot == "STOP_MARKET" and out["sl"] is None:
+                out["sl"] = x
+        return out
+
+    def _algo_resp(self, j):
+        """把条件单接口返回规整成 OKX 形状(含 algoId)"""
+        if isinstance(j, dict) and j.get("success") is not False and not j.get("errorCode"):
+            return {"code": "0", "data": [{"sCode": "0", "sMsg": "", "algoId": j.get("orderId")}]}
+        msg = (j.get("errorMessage") or j.get("msg") or str(j)[:150]) if isinstance(j, dict) else str(j)[:150]
+        return {"code": "1", "data": [{"sCode": "-1", "sMsg": msg}]}
+
+    def place_tp_order(self, inst_id, pos_side, sz, td_mode=None, px=None):
+        side = "SELL" if str(pos_side).lower() == "long" else "BUY"
+        st, j = self.t.place_algo(inst_id, side, pos_side, sz, "TAKE_PROFIT_MARKET", px)
+        print(f"[WEEX补挂TP] {inst_id} sz={sz} px={px} → http={st} {json.dumps(j, ensure_ascii=False)[:220]}")
+        return self._algo_resp(j)
+
+    def place_sl_order(self, inst_id, pos_side, sz, td_mode=None, px=None):
+        side = "SELL" if str(pos_side).lower() == "long" else "BUY"
+        st, j = self.t.place_algo(inst_id, side, pos_side, sz, "STOP_MARKET", px)
+        print(f"[WEEX补挂SL] {inst_id} sz={sz} px={px} → http={st} {json.dumps(j, ensure_ascii=False)[:220]}")
+        return self._algo_resp(j)
+
+    def modify_tp_sl(self, algo_id, px):
+        """改已有条件单触发价"""
+        st, j = self.t.modify_tp_sl(algo_id, px)
+        print(f"[WEEX改价] algoId={algo_id} → {px} http={st} {json.dumps(j, ensure_ascii=False)[:200]}")
+        return self._algo_resp(j)
+
+    def get_algo_pending(self, inst_type="SWAP", inst_id=None):
+        return self.algo_orders(inst_id)
 
     def cancel_algo(self, inst_id, algo_id):
-        return {"code": "0", "msg": "no-op"}
+        st, j = self.t.cancel_algo_order(algo_id)
+        okk = isinstance(j, dict) and j.get("success") is not False and not j.get("errorCode")
+        print(f"[WEEX撤条件单] algoId={algo_id} http={st} {json.dumps(j, ensure_ascii=False)[:200]}")
+        return {"code": "0" if okk else "1", "msg": "" if okk else str(j)[:150],
+                "data": [{"algoId": str(algo_id), "sCode": "0" if okk else "-1"}]}
 
     def cancel_order(self, inst_id, ord_id):
         return {"code": "1", "msg": "WEEX sim 无撤单接口"}
