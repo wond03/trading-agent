@@ -47,8 +47,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791087337.4614367,
- "run_count_today": 55,
+ "last_run_ts": 1791087624.4114933,
+ "run_count_today": 56,
  "history": [
   {
    "type": "signal",
@@ -163,20 +163,7 @@
  ],
  "pushed_watch": [],
  "fail_streak": 0,
- "pending_entries": [
-  {
-   "inst": "XAU-USDT-SWAP",
-   "direction": "long",
-   "size": 30,
-   "ord_id": "3979020654804893696",
-   "tp": 4150.927579999998,
-   "profile": "1-15",
-   "lev": 50,
-   "sl": 4135.511210000001,
-   "signal_entry": 4140.65,
-   "ts": 1791086461
-  }
- ],
+ "pending_entries": [],
  "margin_eff": {
   "BTC-USDT-SWAP": 100.0,
   "XAU-USDT-SWAP": 25.0423
