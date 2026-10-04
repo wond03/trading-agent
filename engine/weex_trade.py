@@ -213,17 +213,19 @@ class WeexTrade:
         return SYMBOL_MAP.get(inst_id, (None, None))[1]
 
     def algo_orders(self, inst_id=None, limit=100):
-        """当前条件单列表。★symbol 必须用【真实合约名】(BTCUSDT); 传 sim 名(BTCSUSDT) 报 -1142"""
-        p = {"page": "1", "limit": str(limit)}
-        if inst_id:
-            p["symbol"] = self.real_symbol(inst_id)
-        st, j = self._call("GET", "/capi/v3/openAlgoOrders", params=p)
+        """当前条件单列表。
+        ★实测: 该接口传 symbol 会被拒/过滤成空(-1142, 且 sim/real 名都不认) → 一律【不传 symbol】,
+          拉全量后本地按真实合约名筛; 否则会误判成"没有保护单"→重复补挂。"""
+        st, j = self._call("GET", "/capi/v3/openAlgoOrders", params={"page": "1", "limit": str(limit)})
         if isinstance(j, list):
             rows = j
         elif isinstance(j, dict):
             rows = j.get("data") or []
         else:
             rows = []
+        if inst_id:
+            rs = (self.real_symbol(inst_id) or "").upper()
+            rows = [x for x in rows if (x.get("symbol") or "").upper() == rs]
         return st, rows
 
     def place_algo(self, inst_id, side, position_side, qty, order_type, trigger,
