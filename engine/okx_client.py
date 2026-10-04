@@ -92,6 +92,21 @@ class OkxClient:
         q = f"?instId={inst_id}" if inst_id else ""
         return self._get(path, {"instId": inst_id} if inst_id else None)
 
+    def position_tier_imr(self, inst_id, td_mode="isolated"):
+        """取该合约【最小仓位档】的初始保证金率 imr(交易所口径的真实保证金率)。
+        ★2026-10-04: OKX /public/position-tiers 对 SWAP 必须传 instFamily(传 instId 会报 50015)。
+        返回 imr 小数(如 0.04=25倍) 或 None(查不到)。"""
+        fam = "-".join(inst_id.split("-")[:2])          # XAU-USDT-SWAP -> XAU-USDT
+        try:
+            j = self._get("/api/v5/public/position-tiers",
+                          {"instType": "SWAP", "tdMode": td_mode, "instFamily": fam})
+            tiers = j.get("data") or []
+            if not tiers:
+                return None
+            return float(tiers[0].get("imr"))           # 档位按 maxSz 升序, 首档=最小仓位
+        except Exception:
+            return None
+
     # ---------- 订单状态 / 撤单 (确认"是否真成交"用) ----------
     def get_order(self, inst_id, ord_id):
         return self._get("/api/v5/trade/order", {"instId": inst_id, "ordId": ord_id})
