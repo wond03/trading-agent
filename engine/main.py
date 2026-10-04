@@ -631,25 +631,22 @@ def run_once():
                     try:
                         _m = float(x.get("margin") or 0)
                         _a = float(x.get("avgPx") or 0)
-                        if _m > 0 and _a > 0:
-                            _mgn_raw[x["instId"]] = (_m, _a)
+                        _lv = float(x.get("lever") or 0)
+                        if _a > 0:
+                            _mgn_raw[x["instId"]] = (_m, _a, _lv)
                     except Exception:
                         pass
             except Exception as e:
                 print(f"[对账] 查询失败 {e}")
             time.sleep(0.5)
-        # ★2026-10-04 方案A: 从交易所持仓学习"有效倍率"(实收保证金口径), 持久化进 state,
-        #   供【平仓后/开新仓时】换算 5U 张数使用(那时没有持仓可实测)。
+        # ★2026-10-04(WEEX): 从持仓学习【该合约的实际杠杆】(sim 接口不能设杠杆, 以交易所/App 为准),
+        #   持久化进 state["weex_leverage"], 供下次计算"5U 要下多少个币"使用。
         for _kk, _sz in _lp.items():
             _ins = _kk[0]
-            _ct = (C.INST_SPECS.get(_ins) or {}).get("ctVal")
-            if _sz > 0 and _ins in _mgn_raw and _ct:
-                _m, _a = _mgn_raw[_ins]
-                _eff = _ct * _a * abs(_sz) / _m
-                if _eff > 0:
-                    state.setdefault("margin_eff", {})[_ins] = round(_eff, 4)
-                    print(f"[保证金] 学到 {_ins} 有效倍率 eff={_eff:.3f} "
-                          f"(实收 {_m:.4f}U / {_sz}张, 名义≈{_ct * _a * abs(_sz):.1f}U)")
+            _lv = (_mgn_raw.get(_ins) or (None, None, None))[2]
+            if _sz > 0 and _lv and float(_lv) > 0:
+                state.setdefault("weex_leverage", {})[_ins] = float(_lv)
+                print(f"[杠杆] 学到 {_ins} 实际杠杆 {_lv}x (来自交易所持仓)")
         print(f"[对账] 交易所持仓={_lp} 本地={[(x['inst'], x['direction'], x.get('size')) for x in state.get('positions', [])]}")
         # ★张数同步(2026-10-02): 本地与交易所不一致(如历史"部分平仓"残留 0.295 这类非整倍张数)
         #   → 以交易所为准, 并撤掉旧TP/SL(由持仓循环的自愈按正确张数重挂)
@@ -685,6 +682,12 @@ def run_once():
             if _sz > 0 and _k not in _state_keys:
                 # ★接管游离持仓(2026-10-02 用户裁定A): 交易所持仓存在但本地无记录 → 按交易所均价重建并补挂TP/SL
                 _ins, _psd = _k[0], _k[1]
+                if not getattr(C, "ADOPT_ORPHANS", False):
+                    # ★2026-10-04(WEEX): 模拟盘账户你本人也可能手动交易 → 不擅自接管, 只提醒
+                    add("巡检", f"⚠️ **检测到非引擎持仓 · {('BTC' if 'BTC' in _ins else '黄金')} {str(_psd).upper()} {_sz}**"
+                                 f"\n> 这不是引擎建的仓（可能是你手动开的）→ 引擎**不接管**，请自行处理")
+                    print(f"[跳过接管] {_ins} {_psd} {_sz} (ADOPT_ORPHANS=False)")
+                    continue
                 _nmx = "BTC" if "BTC" in _ins else "黄金"
                 _dirx = "long" if _psd == "long" else "short"
                 _levx = C.INST_LEVER.get(_ins, C.LEVERAGE_FIXED)
