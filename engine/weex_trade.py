@@ -32,6 +32,15 @@ SYMBOL_MAP = {
     "XAU-USDT-SWAP": ("XAUTSUSDT", "XAUTUSDT"),
 }
 
+# ★2026-10-05: 条件单接口【不带 /sim/ 前缀】, 但用模拟盘密钥调用时作用在模拟盘账户上
+#   (实测: GET openAlgoOrders 返回的正是模拟盘持仓对应的条件单) → 加入签名白名单。
+ALGO_PATHS = (
+    "/capi/v3/openAlgoOrders",     # 查当前条件单
+    "/capi/v3/algoOrder",          # 下条件单(POST) / 撤条件单(DELETE)
+    "/capi/v3/algoOpenOrders",     # 撤全部条件单(DELETE)
+    "/capi/v3/modifyTpSlOrder",    # 改止盈止损触发价(POST)
+)
+
 
 class WeexTrade:
     """WEEX 合约模拟盘客户端(仅下单/持仓/余额/历史; 无撤单)"""
@@ -63,9 +72,9 @@ class WeexTrade:
                 "User-Agent": "nighthunter/1.0"}
 
     def _call(self, method, path, params=None, body=None, signed=True, retry=2):
-        """统一请求。★安全守卫: 签名请求只允许打 /sim/ 路径(绝不可能误触真实盘)"""
-        if signed and "/sim/" not in path:
-            raise RuntimeError(f"拒绝: 签名请求路径必须是 sim 接口, 收到 {path}")
+        """统一请求。★安全守卫: 签名请求只允许打 /sim/ 路径或条件单白名单(绝不可能误触真实盘)"""
+        if signed and "/sim/" not in path and path not in ALGO_PATHS:
+            raise RuntimeError(f"拒绝: 签名请求路径必须是 sim 接口或条件单白名单, 收到 {path}")
         query = urllib.parse.urlencode(params) if params else ""
         body_str = json.dumps(body, separators=(",", ":")) if body is not None else ""
         url = BASE + path + (("?" + query) if query else "")
@@ -77,8 +86,13 @@ class WeexTrade:
                     h = self._headers(ts, method, path, query, body_str)
                 else:
                     h = {"Content-Type": "application/json", "User-Agent": "nighthunter/1.0"}
-                r = (requests.get(url, headers=h, timeout=self.timeout) if method.upper() == "GET"
-                     else requests.post(url, headers=h, data=body_str, timeout=self.timeout))
+                _m = method.upper()
+                if _m == "GET":
+                    r = requests.get(url, headers=h, timeout=self.timeout)
+                elif _m == "DELETE":
+                    r = requests.delete(url, headers=h, timeout=self.timeout, data=body_str)
+                else:
+                    r = requests.post(url, headers=h, timeout=self.timeout, data=body_str)
                 try:
                     return r.status_code, r.json()
                 except Exception:
@@ -191,6 +205,46 @@ class WeexTrade:
         if inst_id:
             p["symbol"] = self.trade_symbol(inst_id)
         return self._call("GET", "/capi/v3/sim/order/history", params=p)
+
+    # ================= 条件单(止盈/止损) ★2026-10-05 =================
+    #   内联的 tp/sl 会在交易所生成 2 张条件单, 其 clientAlgoId = 下单的 newClientOrderId + "sl"/"tp"。
+    #   下面 4 个接口可直接【读回 / 补挂 / 改价 / 撤销】(全部走 ALGO_PATHS 白名单)。
+    def real_symbol(self, inst_id):
+        return SYMBOL_MAP.get(inst_id, (None, None))[1]
+
+    def algo_orders(self, inst_id=None, limit=100):
+        """当前条件单列表。★symbol 必须用【真实合约名】(BTCUSDT); 传 sim 名(BTCSUSDT) 报 -1142"""
+        p = {"page": "1", "limit": str(limit)}
+        if inst_id:
+            p["symbol"] = self.real_symbol(inst_id)
+        st, j = self._call("GET", "/capi/v3/openAlgoOrders", params=p)
+        if isinstance(j, list):
+            rows = j
+        elif isinstance(j, dict):
+            rows = j.get("data") or []
+        else:
+            rows = []
+        return st, rows
+
+    def place_algo(self, inst_id, side, position_side, qty, order_type, trigger,
+                   reduce_only=True, working_type="CONTRACT_PRICE"):
+        """补挂条件单。order_type: TAKE_PROFIT_MARKET(止盈) / STOP_MARKET(止损)"""
+        body = {"symbol": self.real_symbol(inst_id), "side": side.upper(),
+                "positionSide": position_side.upper(), "orderType": order_type,
+                "quantity": str(self.round_qty(inst_id, qty)),
+                "triggerPrice": str(self.round_trigger(inst_id, trigger)),
+                "workingType": working_type, "reduceOnly": bool(reduce_only),
+                "newClientOrderId": self._gen_oid()}
+        return self._call("POST", "/capi/v3/algoOrder", body=body)
+
+    def modify_tp_sl(self, algo_id, trigger, trigger_type="CONTRACT_PRICE"):
+        """改已有条件单触发价(不传 executePrice = 触发后市价执行)"""
+        body = {"orderId": int(algo_id), "triggerPrice": str(trigger),
+                "triggerPriceType": trigger_type}
+        return self._call("POST", "/capi/v3/modifyTpSlOrder", body=body)
+
+    def cancel_algo_order(self, algo_id):
+        return self._call("DELETE", "/capi/v3/algoOrder", params={"orderId": str(algo_id)})
 
     # ================= 下单 =================
     def place_order(self, inst_id, side, position_side, qty, ord_type="MARKET",
