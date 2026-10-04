@@ -992,6 +992,26 @@ def run_once():
                             _live = client.algo_ids(inst_id)
                         except Exception:
                             _live = None
+                        # ★2026-10-05 读回自检: 先把交易所真实条件单的 algoId/触发价同步到本地, 再判断缺不缺
+                        #   ① 开仓时内联生成的 TP/SL 在此被"认领" → 不会被误判成丢失而重复补挂
+                        #   ② 你手动改过触发价 → 本地跟着改(引擎的出场判断才会用交易所真实止损)
+                        try:
+                            _cur = client.tp_sl_open(inst_id, _psh)
+                        except Exception:
+                            _cur = None
+                        if _cur:
+                            for _k, _row in (("tp", _cur.get("tp")), ("sl", _cur.get("sl"))):
+                                if not _row or not _row.get("algoId"):
+                                    continue
+                                p[_k + "_algo_id"] = str(_row["algoId"])
+                                try:
+                                    _v = float(_row.get("triggerPrice") or 0)
+                                    _old = float(p.get(_k) or 0)
+                                    if _v > 0 and abs(_v - _old) > max(abs(_old) * 1e-5, 1e-6):
+                                        print(f"[读回] {inst_id} {_k} 交易所={_v} 本地={_old} → 同步为交易所值")
+                                        p[_k] = _v
+                                except Exception:
+                                    pass
                         if _live is not None:
                             if p.get("tp_algo_id") not in _live:
                                 _r = client.place_tp_order(inst_id, _psh, p["size"], _tdh, p["tp"])
