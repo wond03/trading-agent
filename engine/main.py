@@ -334,6 +334,15 @@ def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
     return struct_sl, None
 
 
+def tp_from_rr(entry_px, direction, sl_px, rr=None):
+    """止盈 = 进场价 ± rr × 风险距离 (固定盈亏比)
+    ★2026-10-04 用户裁定: 止盈不再挂"对侧结构点/腿的另一端", 改为我们自己设的盈亏比(C.TP_RR=2.0)。
+    用【真实成交价 + 实际止损价】算 → 名义RR与实际RR一致(顺带修掉"止损平移了、止盈没平移"的毛病)。"""
+    rr = C.TP_RR if rr is None else rr
+    risk = abs(entry_px - sl_px)
+    return entry_px + rr * risk if direction == "long" else entry_px - rr * risk
+
+
 def _ex_liqpx(client, inst_id, pos_side):
     """取【交易所返回的爆仓价 liqPx】(2026-10-03 用户裁定: 不允许本地臆算)。
     取不到(净持仓模式/演示盘未返回等) → 返回 None, 由调用方如实告知, 绝不编一个数。"""
@@ -497,11 +506,12 @@ def run_once():
                                    pe.get("signal_entry", _avg), pe["lev"])[0]
                 _psx = "long" if pe["direction"] == "long" else "short"
                 _tdx = C.SYMBOLS.get(_pinst, {}).get("td_mode", "isolated")
-                _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": pe["tp"],
+                _tpf = tp_from_rr(_avg, pe["direction"], _slf)          # 止盈按实际成交价+实际止损重算(1:TP_RR)
+                _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": _tpf,
                        "size": _fl, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
                        "leverage": pe["lev"], "profile": pe.get("profile", "4H+1H"),
                        "run_id": state["last_run_ts"], "opened": int(time.time())}
-                _po.update(_place_exchange_tpsl(client, _pinst, _psx, _fl, _tdx, pe["tp"], _slf))
+                _po.update(_place_exchange_tpsl(client, _pinst, _psx, _fl, _tdx, _tpf, _slf))
                 state["positions"].append(_po)
                 state["daily"]["trades"] = state["daily"].get("trades", 0) + 1
                 state["daily"].setdefault("by_profile", {})
@@ -739,15 +749,16 @@ def run_once():
                                     time.sleep(0.8)
                                 if fl > 0:
                                     sl_fill = adaptive_sl(avg, sig.direction, sig.sl, sig.entry, used_lev)[0]  # 止损按"真实成交价"平移重算
+                                    tp_fill = tp_from_rr(avg, sig.direction, sl_fill)                        # 止盈 = 1:TP_RR(同口径)
                                     posobj = {"inst": inst_id, "direction": sig.direction,
-                                              "entry": avg, "sl": sl_fill, "tp": sig.tp,
+                                              "entry": avg, "sl": sl_fill, "tp": tp_fill,
                                               "size": fl, "ratio": 1.0,
                                               "risk_free": False, "tp1_hit": False,
                                               "leverage": used_lev, "profile": pname,
                                               "run_id": state["last_run_ts"],
                                               "opened": int(time.time())}
                                     # ★ 把止盈/止损真实挂到交易所(reduceOnly条件单), App可见
-                                    posobj.update(_place_exchange_tpsl(client, inst_id, _ps, fl, _td, sig.tp, sl_fill))
+                                    posobj.update(_place_exchange_tpsl(client, inst_id, _ps, fl, _td, tp_fill, sl_fill))
                                     # ★爆仓价: 取【交易所返回的 liqPx】(用户裁定: 不本地臆算; 取不到就如实说明)
                                     _lqd = _ex_liqpx(client, inst_id, _ps)
                                     posobj["liq_px"] = _lqd
