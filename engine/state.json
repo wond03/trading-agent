@@ -1,25 +1,6 @@
 {
  "positions": [
   {
-   "inst": "XAU-USDT-SWAP",
-   "direction": "long",
-   "entry": 4143.6,
-   "sl": 4095.9751,
-   "tp": 4238.8498,
-   "size": 0.119,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 50,
-   "profile": "1-15",
-   "adopted": true,
-   "run_id": 1791091282.8560882,
-   "opened": 1791091286,
-   "tp_algo_id": null,
-   "sl_algo_id": null,
-   "err": []
-  },
-  {
    "inst": "BTC-USDT-SWAP",
    "direction": "short",
    "entry": 84806.9,
@@ -160,11 +141,18 @@
    "ts": 1791091287.5993235,
    "profile": "1-15",
    "detail": "BTC做空 · 进84,791 损85,037 标84,298 · RR1:2"
+  },
+  {
+   "type": "archive",
+   "ts": 1791091561.0023553,
+   "profile": "1-15",
+   "inst": "XAU-USDT-SWAP",
+   "direction": "long",
+   "detail": "[撤销误接管] XAU-USDT-SWAP LONG 0.119 @4143.6 （非引擎持仓, 已改为\"只提醒不接管\"）"
   }
  ],
  "pushed_signals": [
-  "1-15|BTC-USDT-SWAP|short|85040",
-  "1-15|XAU-USDT-SWAP|short|4140"
+  "1-15|BTC-USDT-SWAP|short|85040"
  ],
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
@@ -178,8 +166,5 @@
   "BTC-USDT-SWAP": 100.0,
   "XAU-USDT-SWAP": 100
  },
- "broker": "weex",
- "margin_eff": {
-  "XAU-USDT-SWAP": 0.1
- }
+ "broker": "weex"
 }
