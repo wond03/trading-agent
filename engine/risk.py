@@ -43,7 +43,8 @@ def size_fixed_margin(price, inst_id, leverage=None):
     if not spec:
         return None
     lev = leverage or C.LEVERAGE_FIXED
-    notional = C.MARGIN_PER_TRADE * lev
+    _mgn = (getattr(C, "INST_MARGIN_USD", None) or {}).get(inst_id, C.MARGIN_PER_TRADE)
+    notional = _mgn * lev
     raw_lots = notional / (spec["ctVal"] * price)
     lot = spec["lotSz"]
     lots = max(round(raw_lots / lot) * lot, spec["minSz"])
