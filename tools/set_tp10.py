@@ -19,6 +19,13 @@ st, pos = c.get_positions_raw()
 rows = pos if isinstance(pos, list) else ((pos or {}).get("data") or [])
 print(f"持仓数: {len(rows)}   目标浮盈 = {USD}U\n")
 
+_st0, _all0 = c.algo_orders()
+print(f"[DEBUG] 账户全部条件单 {len(_all0)} 条:")
+for _a in _all0:
+    print(f"   {_a.get('symbol')} {_a.get('positionSide')} {_a.get('orderType')} "
+          f"trigger={_a.get('triggerPrice')} qty={_a.get('quantity')} status={_a.get('algoStatus')} id={_a.get('algoId')}")
+print()
+
 for x in rows:
     sym = (x.get("symbol") or "").upper()
     inst = next((k for k, v in SYMBOL_MAP.items() if v[0].upper() == sym), None)
