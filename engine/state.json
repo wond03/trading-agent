@@ -1,44 +1,5 @@
 {
- "positions": [
-  {
-   "inst": "XAU-USDT-SWAP",
-   "direction": "short",
-   "entry": 4205.9,
-   "sl": 4260.499999999999,
-   "tp": 4035.9000000000015,
-   "size": 60.0,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 50,
-   "profile": "1-15",
-   "run_id": 1790974261.8994925,
-   "opened": 1790974265,
-   "tp_algo_id": "3978869286914867200",
-   "sl_algo_id": "3978869292988219392",
-   "err": [],
-   "liq_px": 4245.340870856012
-  },
-  {
-   "inst": "BTC-USDT-SWAP",
-   "direction": "short",
-   "entry": 84825.54,
-   "sl": 85079.23744999999,
-   "tp": 84318.2,
-   "size": 0.59,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 100,
-   "profile": "1-15",
-   "run_id": 1791073464.993106,
-   "opened": 1791073468,
-   "tp_algo_id": "3978862315948064768",
-   "sl_algo_id": "3978584881126293504",
-   "err": [],
-   "liq_px": 85289.98044300647
-  }
- ],
+ "positions": [],
  "daily": {
   "date": "2026-10-04",
   "trades": 1,
@@ -141,21 +102,25 @@
    "ts": 1791073469.5005205,
    "profile": "1-15",
    "detail": "BTC做空 · 进84,784 损85,037 标84,477 · RR1:1"
+  },
+  {
+   "type": "archive",
+   "ts": 1791091032.712964,
+   "profile": "1-15",
+   "inst": "XAU-USDT-SWAP",
+   "direction": "short",
+   "detail": "[归档·OKX转WEEX] 黄金 SHORT 60.0 @4205.9 (OKX模拟盘遗留, 不再由引擎管理)"
+  },
+  {
+   "type": "archive",
+   "ts": 1791091032.712964,
+   "profile": "1-15",
+   "inst": "BTC-USDT-SWAP",
+   "direction": "short",
+   "detail": "[归档·OKX转WEEX] BTC SHORT 0.59 @84825.54 (OKX模拟盘遗留, 不再由引擎管理)"
   }
  ],
- "pushed_signals": [
-  "4H+1H|BTC-USDT-SWAP|long|83170",
-  "4H+15m|BTC-USDT-SWAP|long|84450",
-  "4H+1H|XAU-USDT-SWAP|long|4140",
-  "4H+1H|BTC-USDT-SWAP|long|83180",
-  "4H+1H|XAU-USDT-SWAP|long|4150",
-  "4H+15m|XAU-USDT-SWAP|long|4180",
-  "4-1-15|XAU-USDT-SWAP|long|4150",
-  "4-1-15|XAU-USDT-SWAP|short|4200",
-  "4-1-15|BTC-USDT-SWAP|long|84440",
-  "1-15|BTC-USDT-SWAP|short|85040",
-  "1-15|XAU-USDT-SWAP|long|4140"
- ],
+ "pushed_signals": [],
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
   "· **BTC** 下跌 | FVG 84,871~84,874 | 扫上84,690(1点)",
@@ -164,8 +129,9 @@
  "pushed_watch": [],
  "fail_streak": 0,
  "pending_entries": [],
- "margin_eff": {
-  "BTC-USDT-SWAP": 100.0,
-  "XAU-USDT-SWAP": 25.0423
- }
+ "weex_leverage": {
+  "BTC-USDT-SWAP": 100,
+  "XAU-USDT-SWAP": 100
+ },
+ "broker": "weex"
 }
