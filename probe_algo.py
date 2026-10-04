@@ -1,5 +1,5 @@
-# 探测: WEEX 条件单(止盈止损)到底有没有挂上 —— 关键接口 GET /capi/v3/openAlgoOrders
-# 目的: 判定 [WEEX下单] 里内联的 tpTriggerPrice/slTriggerPrice 是否真的生成了条件单
+# 拉全: WEEX 持仓 + 条件单(止盈止损) + 最近委托 —— 判定 tp/sl 挂没挂、挂在哪
+import json
 import sys
 import time
 import urllib.parse
@@ -10,32 +10,39 @@ sys.path.insert(0, "engine")
 from weex_trade import WeexTrade, BASE  # noqa: E402
 
 c = WeexTrade()
-print("configured:", c.configured, "time_offset:", c.sync_time())
+c.sync_time()
 
 
 def raw_get(path, params=None):
-    """只读探测, 绕过 /sim/ 守卫(仅 GET, 不产生任何写操作)"""
     query = urllib.parse.urlencode(params) if params else ""
     url = BASE + path + (("?" + query) if query else "")
     ts = int(time.time() * 1000) + c._t_off
     h = c._headers(ts, "GET", path, query, "")
     try:
         r = requests.get(url, headers=h, timeout=20)
-        return r.status_code, r.text[:900]
+        try:
+            return r.status_code, r.json()
+        except Exception:
+            return r.status_code, r.text[:500]
     except Exception as e:
         return -1, f"{type(e).__name__}: {e}"
 
 
-CANDS = [
-    ("/capi/v3/sim/openAlgoOrders", None),
-    ("/capi/v3/sim/openAlgoOrders", {"symbol": "BTCSUSDT"}),
-    ("/capi/v3/sim/openOrders", None),
-    ("/capi/v3/openAlgoOrders", None),
-    ("/capi/v3/openAlgoOrders", {"symbol": "BTCSUSDT"}),
-]
-for p, q in CANDS:
-    st, body = raw_get(p, q)
-    print(f"\n### GET {p} {q or ''} -> {st}")
-    print(body)
+def show(title, obj):
+    print(f"\n========== {title} ==========")
+    print(json.dumps(obj, ensure_ascii=False, indent=1))
+
+
+# 1) 持仓
+st, j = raw_get("/capi/v3/sim/position/allPosition")
+show(f"持仓 (http {st})", j)
+
+# 2) 条件单 (止盈止损) —— 全量
+st, j = raw_get("/capi/v3/openAlgoOrders", {"page": 1, "limit": 100})
+show(f"条件单 openAlgoOrders (http {st})", j)
+
+# 3) 最近委托
+st, j = c.get_order_history(limit=12)
+show(f"最近委托 (http {st})", j)
 
 print("\n完成")
