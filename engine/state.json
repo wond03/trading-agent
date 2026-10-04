@@ -1,22 +1,5 @@
 {
- "positions": [
-  {
-   "inst": "XAU-USDT-SWAP",
-   "direction": "short",
-   "entry": 4140.7,
-   "sl": 4142.79036,
-   "tp": 4134.569280000001,
-   "size": 0.12,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 100.0,
-   "profile": "1-15",
-   "run_id": 1791091664.2827482,
-   "opened": 1791091669,
-   "liq_px": 4175.9
-  }
- ],
+ "positions": [],
  "daily": {
   "date": "2026-10-04",
   "trades": 10,
@@ -25,8 +8,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791125149.9015434,
- "run_count_today": 100,
+ "last_run_ts": 1791126061.4368892,
+ "run_count_today": 101,
  "history": [
   {
    "type": "signal",
@@ -269,6 +252,15 @@
    "entry": 85276.3,
    "exit": 85233.7,
    "detail": "[1-15] BTC LONG -0.24U"
+  },
+  {
+   "type": "exit",
+   "ts": 1791126065.18058,
+   "profile": "1-15",
+   "pnl": -0.07,
+   "entry": 4140.7,
+   "exit": 4141.3,
+   "detail": "[1-15] 黄金 SHORT -0.07U(交易所端)"
   }
  ],
  "pushed_signals": [
@@ -286,7 +278,7 @@
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
   "· **BTC** 上涨 | FVG 84,808~84,834 | 扫上84,995(1点)",
-  "· **黄金** 下跌 | FVG 4,140~4,140 | 扫上4,141(2点)"
+  "· **黄金** 下跌 | FVG 4,136~4,137 | 扫上4,141(2点)"
  ],
  "pushed_watch": [],
  "fail_streak": 0,
