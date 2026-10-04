@@ -15,18 +15,34 @@
    "run_id": 1791091282.8560882,
    "opened": 1791091287,
    "liq_px": 85398.8
+  },
+  {
+   "inst": "XAU-USDT-SWAP",
+   "direction": "short",
+   "entry": 4140.7,
+   "sl": 4142.79036,
+   "tp": 4134.569280000001,
+   "size": 0.12,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 100.0,
+   "profile": "1-15",
+   "run_id": 1791091664.2827482,
+   "opened": 1791091669,
+   "liq_px": 4175.9
   }
  ],
  "daily": {
   "date": "2026-10-04",
-  "trades": 2,
+  "trades": 3,
   "by_profile": {
-   "1-15": 2
+   "1-15": 3
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791091282.8560882,
- "run_count_today": 60,
+ "last_run_ts": 1791091664.2827482,
+ "run_count_today": 61,
  "history": [
   {
    "type": "signal",
@@ -149,10 +165,17 @@
    "inst": "XAU-USDT-SWAP",
    "direction": "long",
    "detail": "[撤销误接管] XAU-USDT-SWAP LONG 0.119 @4143.6 （非引擎持仓, 已改为\"只提醒不接管\"）"
+  },
+  {
+   "type": "signal",
+   "ts": 1791091669.930884,
+   "profile": "1-15",
+   "detail": "黄金做空 · 进4,140 损4,143 标4,135 · RR1:2"
   }
  ],
  "pushed_signals": [
-  "1-15|BTC-USDT-SWAP|short|85040"
+  "1-15|BTC-USDT-SWAP|short|85040",
+  "1-15|XAU-USDT-SWAP|short|4140"
  ],
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
@@ -164,7 +187,7 @@
  "pending_entries": [],
  "weex_leverage": {
   "BTC-USDT-SWAP": 100.0,
-  "XAU-USDT-SWAP": 100
+  "XAU-USDT-SWAP": 100.0
  },
  "broker": "weex"
 }
