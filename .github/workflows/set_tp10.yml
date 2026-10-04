@@ -1,0 +1,20 @@
+name: set-tp10
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 把已持仓的止盈改到 10U 价位
+        env:
+          WEEX_API_KEY: ${{ secrets.WEEX_API_KEY }}
+          WEEX_API_SECRET: ${{ secrets.WEEX_API_SECRET }}
+          WEEX_API_PASSPHRASE: ${{ secrets.WEEX_API_PASSPHRASE }}
+        run: python tools/set_tp10.py
