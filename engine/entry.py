@@ -30,7 +30,7 @@ class EntryEngine:
     def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
         """返回 EntrySignal 或 None
         ★2026-10-04 用户裁定 "全部按A": 入场改为【1H BOS/CHoCH 定方向 + 15m 回踩 FVG 进场(一碰就进)】
-          止损 = FVG 远端外侧 ; 止盈 = 固定 1:2
+        ★2026-10-05: 止损 = FVG 左侧那根K线极值外侧 ; 止盈 = 目标浮盈 TP_USD 美元(详见下方③)
         (旧"15m 同向 CHoCH 即入场"已停用)"""
         i = bar_i if bar_i is not None else len(candles) - 1
         steps = {}
@@ -45,7 +45,7 @@ class EntryEngine:
         # ============ 1H方向 + 15m FVG回踩 (2026-10-04 用户裁定 "全部按A") ============
         #   1H(背景) = 结构方向 BOS/CHoCH 定方向
         #   15m(入场) = 价格回踩进【顺势方向】FVG 即入场(一碰就进, 不等确认)
-        #   止损 = FVG 远端外侧 ; 止盈 = 固定盈亏比 TP_RR(1:2)
+        #   止损 = FVG 左侧那根K线极值外侧 ; 止盈 = 目标浮盈 TP_USD 美元
         px = ltf_candles[-1].close if ltf_candles else candles[i].close
         _H = getattr(se, "last_swing_high", None)                 # (idx,'H',price)
         _L = getattr(se, "last_swing_low", None)
@@ -85,7 +85,7 @@ class EntryEngine:
         if not trigger:
             return None
 
-        # ④ 止损 = 形成这段缺口的【起点K线】(FVG 左侧那根)的极值 外侧 ; 止盈 = 固定盈亏比 TP_RR
+        # ④ 止损 = 形成这段缺口的【起点K线】(FVG 左侧那根)的极值 外侧 ; 止盈 = 目标浮盈金额
         #   ★2026-10-05 用户裁定: 止损不再挂 FVG 区间外沿, 改挂 "FVG 左侧那根K线"的极值 ——
         #     多头: 起点那根的最低价 × (1-buffer) ; 空头: 起点那根的最高价 × (1+buffer)
         _li = int(_fvg.get("idx", 0)) - 1                # 缺口左侧(起点)那根 15m K线
@@ -108,10 +108,23 @@ class EntryEngine:
         if risk <= 0:
             steps["geometry_bad"] = round(risk, 4)
             return None
-        rr = C.TP_RR
-        tp = (px - rr * risk) if htf_trend == "down" else (px + rr * risk)
+        # ③ 止盈: 口径由 C.TP_MODE 决定
+        #   "usd"(★2026-10-05 用户裁定 "止盈按10u给") = 放在【浮盈 = TP_USD 美元】处:
+        #        价格距离 = 目标浮盈 / 持仓数量(币) ≈ TP_USD × 进场价 / 名义
+        #        名义 ≈ WEEX_MARGIN_USD × LEVERAGE_FIXED (5U × 100x = 500U) → 约 2%
+        #   "rr" = 旧的固定盈亏比
+        if str(getattr(C, "TP_MODE", "rr")).lower() == "usd":
+            _notional = float(C.WEEX_MARGIN_USD) * float(C.LEVERAGE_FIXED)
+            _dist = float(C.TP_USD) * px / max(_notional, 1e-9)
+            tp = (px - _dist) if htf_trend == "down" else (px + _dist)
+            rr = abs(tp - px) / max(abs(px - sl), 1e-9)
+            _rz = (f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} "
+                   f"(浮盈{C.TP_USD:.0f}U, RR1:{rr:.1f})")
+        else:
+            rr = C.TP_RR
+            tp = (px - rr * risk) if htf_trend == "down" else (px + rr * risk)
+            _rz = f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} RR=1:{rr:.1f}"
         _dir = "long" if htf_trend == "up" else "short"
-        _rz = f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} RR=1:{rr:.1f}"
         return EntrySignal(_dir, px, sl, tp, _rz, steps, "high" if rr >= 2 else "normal", 0)
 
     # ---------- 模型2: 双蜡烛真假突破 (规则C3, CRT核心) ----------
