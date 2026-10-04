@@ -147,10 +147,16 @@ class WeexBroker:
         return out
 
     def _algo_resp(self, j):
-        """把条件单接口返回规整成 OKX 形状(含 algoId)"""
-        if isinstance(j, dict) and j.get("success") is not False and not j.get("errorCode"):
-            return {"code": "0", "data": [{"sCode": "0", "sMsg": "", "algoId": j.get("orderId")}]}
-        msg = (j.get("errorMessage") or j.get("msg") or str(j)[:150]) if isinstance(j, dict) else str(j)[:150]
+        """把条件单接口返回规整成 OKX 形状(含 algoId)。
+        ★注意: 失败时返回 {"code":-1141,"msg":...} (没有 success/errorCode 字段) → 必须用 code 判断, 不能只看 success。"""
+        if isinstance(j, dict):
+            _has_err = (j.get("success") is False) or bool(j.get("errorCode")) \
+                or (isinstance(j.get("code"), (int, str)) and str(j.get("code")) not in ("0", ""))
+            if not _has_err and (j.get("orderId") or j.get("success") is True):
+                return {"code": "0", "data": [{"sCode": "0", "sMsg": "", "algoId": j.get("orderId")}]}
+            msg = j.get("errorMessage") or j.get("msg") or str(j)[:150]
+        else:
+            msg = str(j)[:150]
         return {"code": "1", "data": [{"sCode": "-1", "sMsg": msg}]}
 
     def place_tp_order(self, inst_id, pos_side, sz, td_mode=None, px=None):
