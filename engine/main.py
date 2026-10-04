@@ -820,9 +820,18 @@ def run_once():
                     print(f"[无信号] {inst_id} {plabel} → {why_no_signal(ee)}")
                 fp = None
                 if sig:
-                    # 指纹用稳定特征: 方案+品种+方向+止损结构位(取整到10美元, 抗ATR微漂移)
-                    fp = f"{pname}|{inst_id}|{sig.direction}|{round(sig.sl / 10) * 10}"
-                    if fp in state.get("pushed_signals", []):
+                    # ★2026-10-05 用户裁定: 去重指纹改用【信号真身份 = 方向 + FVG 区间】, 并加 6 小时时效。
+                    #   旧口径用"止损取整/10" → 两头漏: 漂得多被当新信号(重复开)、漂得少卡死(挡住真信号)。
+                    _fv = (sig.steps or {}).get("fvg") or {}
+                    if _fv.get("bottom") is not None and _fv.get("top") is not None:
+                        fp = (f"{pname}|{inst_id}|{sig.direction}"
+                              f"|fvg{round(float(_fv['bottom']), 1)}_{round(float(_fv['top']), 1)}")
+                    else:
+                        fp = f"{pname}|{inst_id}|{sig.direction}|{round(sig.sl / 10) * 10}"
+                    _now = time.time()
+                    state["pushed_fp"] = {k: v for k, v in state.get("pushed_fp", {}).items()
+                                          if _now - v < 6 * 3600}          # 指纹 6 小时过期
+                    if fp in state["pushed_fp"]:
                         print(f"[跳过重复信号] {fp}")
                         sig = None
                 # 同品种「同方向」只留一仓(用户规则): 已有同向仓/挂单 → 直接忽略新信号, 不换仓; 不同方向可并存
@@ -941,9 +950,8 @@ def run_once():
                                 "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
                     else:
                         add("哨兵", f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
-                    # 记录指纹(去重), 保留最近60条
-                    state.setdefault("pushed_signals", []).append(fp)
-                    state["pushed_signals"] = state["pushed_signals"][-60:]
+                    # 记录指纹(去重): dict[fp] = 时间戳, 按 6 小时过期
+                    state.setdefault("pushed_fp", {})[fp] = time.time()
                 # ---- 持仓管理 (出场引擎; 按方案过滤) ----
                 for p in list(state["positions"]):
                     if p["inst"] != inst_id or p.get("profile", "4H+1H") != pname:
