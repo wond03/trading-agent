@@ -406,6 +406,25 @@ def tp_from_rr(entry_px, direction, sl_px, rr=None):
     return entry_px + rr * risk if direction == "long" else entry_px - rr * risk
 
 
+def tp_from_usd(entry_px, direction, size_coin=None, usd=None):
+    """★2026-10-05 用户裁定 "止盈按10u给": 止盈放在【浮盈 = usd 美元】的位置。
+    价格距离 = 目标浮盈 / 持仓数量(币); 与止损无关(实现"小止损大止盈")。
+    取不到数量时, 退回按目标名义(WEEX_MARGIN_USD × 杠杆)估算。"""
+    usd = float(getattr(C, "TP_USD", 10.0)) if usd is None else float(usd)
+    q = float(size_coin or 0)
+    if q <= 0:
+        q = (float(C.WEEX_MARGIN_USD) * float(C.LEVERAGE_FIXED)) / max(float(entry_px), 1e-9)
+    dist = usd / q
+    return entry_px + dist if direction == "long" else entry_px - dist
+
+
+def tp_target(entry_px, direction, sl_px, size_coin=None):
+    """按 C.TP_MODE 选止盈口径: "usd"=固定浮盈金额(默认) ; "rr"=固定盈亏比"""
+    if str(getattr(C, "TP_MODE", "rr")).lower() == "usd":
+        return tp_from_usd(entry_px, direction, size_coin=size_coin)
+    return tp_from_rr(entry_px, direction, sl_px)
+
+
 def _ex_liqpx(client, inst_id, pos_side):
     """取【交易所返回的爆仓价 liqPx】(2026-10-03 用户裁定: 不允许本地臆算)。
     取不到(净持仓模式/演示盘未返回等) → 返回 None, 由调用方如实告知, 绝不编一个数。"""
@@ -599,7 +618,7 @@ def run_once():
                                    pe.get("signal_entry", _avg), pe["lev"])[0]
                 _psx = "long" if pe["direction"] == "long" else "short"
                 _tdx = C.SYMBOLS.get(_pinst, {}).get("td_mode", "isolated")
-                _tpf = tp_from_rr(_avg, pe["direction"], _slf)          # 止盈按实际成交价+实际止损重算(1:TP_RR)
+                _tpf = tp_target(_avg, pe["direction"], _slf, size_coin=_fl)   # 止盈按 C.TP_MODE(默认=浮盈TP_USD美元)重算
                 _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": _tpf,
                        "size": _fl, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
                        "leverage": pe["lev"], "profile": pe.get("profile", "4H+1H"),
@@ -863,6 +882,8 @@ def run_once():
                         print(f"[仓位] {inst_id} qty={size['lots']} 名义{size['notional']}U "
                               f"保证金{size['margin']}U (杠杆{used_lev}x, 来源={size.get('margin_src')})")
                         sl_use, liq_px = adaptive_sl(sig.entry, sig.direction, sig.sl, sig.entry, used_lev)
+                        # ★2026-10-05: 用【本单真实数量】把止盈换算成"浮盈 TP_USD 美元"的价位(口径见 C.TP_MODE)
+                        sig.tp = tp_target(sig.entry, sig.direction, sl_use, size_coin=size["lots"])
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
                         _opened = False
                         if not DRY_RUN:
