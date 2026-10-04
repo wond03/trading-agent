@@ -10,11 +10,10 @@ c = OkxClient(api_key=os.environ["OKX_API_KEY"], secret=os.environ["OKX_SECRET_K
               passphrase=os.environ["OKX_PASSPHRASE"], simulated=True)
 
 QUERIES = [
-    ("全品种 isolated", {"instType": "SWAP", "tdMode": "isolated"}),
-    ("单独 XAU isolated", {"instType": "SWAP", "tdMode": "isolated", "instId": "XAU-USDT-SWAP"}),
-    ("单独 XAU cross", {"instType": "SWAP", "tdMode": "cross", "instId": "XAU-USDT-SWAP"}),
-    ("全品种 cross", {"instType": "SWAP", "tdMode": "cross"}),
-    ("全品种 no tdMode", {"instType": "SWAP"}),
+    ("XAU-USDT isolated", {"instType": "SWAP", "tdMode": "isolated", "instFamily": "XAU-USDT"}),
+    ("XAU-USDT cross", {"instType": "SWAP", "tdMode": "cross", "instFamily": "XAU-USDT"}),
+    ("BTC-USDT isolated", {"instType": "SWAP", "tdMode": "isolated", "instFamily": "BTC-USDT"}),
+    ("BTX uly 写法", {"instType": "SWAP", "tdMode": "isolated", "uly": "XAU-USDT"}),
 ]
 for name, params in QUERIES:
     print("=" * 70)
