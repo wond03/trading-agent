@@ -18,18 +18,37 @@
    "sl_algo_id": "3975256180238172160",
    "err": [],
    "liq_px": 4245.340870856012
+  },
+  {
+   "inst": "BTC-USDT-SWAP",
+   "direction": "short",
+   "entry": 84825.54,
+   "sl": 85079.23744999999,
+   "tp": 84476.9,
+   "size": 0.59,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 100,
+   "profile": "1-15",
+   "run_id": 1791073464.993106,
+   "opened": 1791073468,
+   "tp_algo_id": "3978584875656921088",
+   "sl_algo_id": "3978584881126293504",
+   "err": [],
+   "liq_px": 85289.98044300647
   }
  ],
  "daily": {
   "date": "2026-10-04",
-  "trades": 0,
+  "trades": 1,
   "by_profile": {
-   "1-15": 0
+   "1-15": 1
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791072945.5280418,
- "run_count_today": 36,
+ "last_run_ts": 1791073464.993106,
+ "run_count_today": 37,
  "history": [
   {
    "type": "signal",
@@ -116,6 +135,12 @@
    "entry": 84520.1,
    "exit": 84400.0,
    "detail": "[4-1-15] BTC LONG -1.21U(交易所端)"
+  },
+  {
+   "type": "signal",
+   "ts": 1791073469.5005205,
+   "profile": "1-15",
+   "detail": "BTC做空 · 进84,784 损85,037 标84,477 · RR1:1"
   }
  ],
  "pushed_signals": [
@@ -127,7 +152,8 @@
   "4H+15m|XAU-USDT-SWAP|long|4180",
   "4-1-15|XAU-USDT-SWAP|long|4150",
   "4-1-15|XAU-USDT-SWAP|short|4200",
-  "4-1-15|BTC-USDT-SWAP|long|84440"
+  "4-1-15|BTC-USDT-SWAP|long|84440",
+  "1-15|BTC-USDT-SWAP|short|85040"
  ],
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
