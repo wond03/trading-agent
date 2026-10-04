@@ -85,20 +85,21 @@ class EntryEngine:
         if not trigger:
             return None
 
-        # ④ 止损/止盈 = 结构位 (视频: 止损放前期高点/低点外侧, 目标 = 对侧结构点)
+        # ④ 止损 = 结构位; 止盈 = 固定盈亏比 TP_RR
+        #   ★2026-10-04 用户裁定: "止盈挂高点, 1:2 我们可以自己设置" → 不再用"对侧结构点"
         if htf_trend == "down":
-            sl = leg_hi * (1 + C.SL_BUFFER_PCT)
-            tp = leg_lo
-            risk, rew = sl - px, px - tp
+            sl = leg_hi * (1 + C.SL_BUFFER_PCT)      # 空: 止损放腿高上方
+            risk = sl - px
         else:
-            sl = leg_lo * (1 - C.SL_BUFFER_PCT)
-            tp = leg_hi
-            risk, rew = px - sl, tp - px
+            sl = leg_lo * (1 - C.SL_BUFFER_PCT)      # 多: 止损放腿低下方
+            risk = px - sl
         # 几何有效性(非门槛): 止损必须在价格正确一侧, 否则说明结构位已被穿过、单子无意义
-        if risk <= 0 or rew <= 0:
-            steps["geometry_bad"] = (round(risk, 4), round(rew, 4))
+        if risk <= 0:
+            steps["geometry_bad"] = round(risk, 4)
             return None
-        rr = rew / risk
+        rr = C.TP_RR
+        tp = (px - rr * risk) if htf_trend == "down" else (px + rr * risk)
+        rew = rr * risk
         # ★2026-10-04 用户裁定: 【盈亏比门槛(原 rr>=1.5)已删除】—— rr 仅作信息展示
         _dir = "long" if htf_trend == "up" else "short"
         _rz = (f"1H{htf_trend} | 斐波50%={mid:.1f} 现价{px:.1f}[{'溢价' if premium else '折价'}]"
