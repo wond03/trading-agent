@@ -1,23 +1,24 @@
-# 重试①: 撤掉卡住的市价平仓单 → 用【限价单穿盘口】平掉黄金一半 → 按剩余张数重挂保护单
+# 重试②: 撤掉卡住的市价平仓单 → 用【限价单穿盘口】平掉黄金一半 → 按剩余张数重挂保护单
 import os
 import sys
 import json
 import time
+import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine"))
 from okx_client import OkxClient                              # noqa: E402
 
 INST = "XAU-USDT-SWAP"
-OLD_ORD = "3978862353383325696"          # 卡住的市价平仓单
+OLD_ORD = os.environ.get("OLD_ORD", "3978862353383325696")
 
 c = OkxClient(api_key=os.environ["OKX_API_KEY"], secret=os.environ["OKX_SECRET_KEY"],
               passphrase=os.environ["OKX_PASSPHRASE"], simulated=True)
 
 
-def pos_now():
+def pos_row():
     rows = [x for x in (c.get_positions(inst_id=INST).get("data") or [])
             if float(x.get("pos") or 0) != 0 and x.get("posSide") == "short"]
-    return float(rows[0]["pos"]) if rows else 0.0
+    return rows[0] if rows else None
 
 
 def algos():
@@ -30,25 +31,44 @@ def algos():
     return tp, sl
 
 
-print("① 撤掉卡住的旧平仓单")
+def ticker():
+    try:
+        d = requests.get("https://www.okx.com/api/v5/market/ticker",
+                         params={"instId": INST}, timeout=20).json()
+        t = (d.get("data") or [{}])[0]
+        return float(t.get("bidPx") or 0), float(t.get("askPx") or 0)
+    except Exception as e:
+        print("   ticker 失败:", e)
+        return 0.0, 0.0
+
+
+print("① 撤掉卡住的旧平仓单", OLD_ORD)
 try:
     r = c.cancel_order(INST, OLD_ORD)
     print("   cancel ->", r.get("code"), ((r.get("data") or [{}])[0] or {}).get("sCode"), r.get("msg"))
 except Exception as e:
-    print("   cancel 异常(可能已不在挂单列表):", e)
+    print("   cancel 异常:", e)
+try:
+    pend = [x for x in (c.get_pending_orders(inst_type="SWAP").get("data") or []) if x.get("instId") == INST]
+    print("   撤后仍在该合约挂单:", [(x.get("ordId"), x.get("state"), x.get("sz")) for x in pend])
+except Exception as e:
+    print("   查挂单失败", e)
 
-sz0 = pos_now()
-print(f"② 当前持仓 {sz0} 张")
-if sz0 <= 0:
-    print("   无持仓, 结束"); raise SystemExit
+row = pos_row()
+if not row:
+    print("② 无持仓, 结束"); raise SystemExit
+sz0 = float(row["pos"]); avg = float(row["avgPx"])
+print(f"② 当前持仓 {sz0} 张 @{avg} markPx={row.get('markPx')} last={row.get('last')}")
 half = c.round_sz(INST, sz0 / 2.0)
 
-tk = (c.get_tick(INST).get("data") or [{}])[0]
-ask = float(tk.get("askPx") or 0); bid = float(tk.get("bidPx") or 0)
-print(f"   盘口 bid={bid} ask={ask}")
+bid, ask = ticker()
+if ask <= 0:
+    ask = max(float(row.get("markPx") or 0), float(row.get("last") or 0), avg) * 1.01
+    print(f"   盘口取不到, 用 {ask:.2f} 兜底")
+else:
+    print(f"   盘口 bid={bid} ask={ask}")
+px = c.round_tick(INST, ask * 1.005)
 
-# 买入平空: 限价挂到 ask 上方 → 主动吃单
-px = c.round_tick(INST, ask * 1.001)
 print(f"③ 限价平仓 {half} 张 @ {px} (穿盘口)")
 body = {"instId": INST, "tdMode": "isolated", "side": "buy", "posSide": "short",
         "ordType": "limit", "sz": str(half), "px": str(px), "reduceOnly": True}
@@ -66,7 +86,8 @@ if r.get("code") == "0" and dd.get("sCode") == "0" and dd.get("ordId"):
         time.sleep(5)
 
 time.sleep(1.0)
-p = pos_now()
+row = pos_row()
+p = float(row["pos"]) if row else 0.0
 print(f"④ 成交 {filled} 张 | 剩余持仓 {p} 张")
 if p > 0 and filled > 0:
     tp_a, sl_a = algos()
@@ -85,10 +106,9 @@ if p > 0 and filled > 0:
             print(f"   重挂{k2} sz={p} px={px2} sCode={d2.get('sCode')} algoId={d2.get('algoId')}")
 
 print("⑤ 收尾")
-g = (c.get_positions(inst_id=INST).get("data") or [])
-for x in g:
-    if float(x.get("pos") or 0) != 0:
-        print(f"   {INST}: {x['pos']}张 @{x['avgPx']} 保证金={x.get('margin')} 名义={x.get('notionalUsd')} 杠杆={x.get('lever')}")
+row = pos_row()
+if row:
+    print(f"   {INST}: {row['pos']}张 @{row['avgPx']} 保证金={row.get('margin')} 名义={row.get('notionalUsd')} 杠杆={row.get('lever')} 爆仓={row.get('liqPx')}")
 tp_a, sl_a = algos()
 print(f"   挂单: 止盈={tp_a.get('tpTriggerPx') if tp_a else None}({tp_a.get('sz') if tp_a else '-'}) "
       f"止损={sl_a.get('slTriggerPx') if sl_a else None}({sl_a.get('sz') if sl_a else '-'})")
