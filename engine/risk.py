@@ -35,24 +35,33 @@ class RiskManager:
             ok = False
         return ok, detail
 
-# ========== 固定保证金模式 (用户指定: 5U × 100倍) ==========
-def size_fixed_margin(price, inst_id, leverage=None):
-    """固定保证金仓位: 张数 = (保证金×杠杆) / (每张面值×价格), 按步长取整, 不低于最小下单
-    leverage: 实际可用杠杆(不同品种上限不同, XAU实测50), 默认取 C.LEVERAGE_FIXED"""
+# ========== 固定保证金模式 (用户指定: 每单 5U) ==========
+def size_fixed_margin(price, inst_id, leverage=None, mgn_per_contract=None):
+    """固定保证金仓位, 张数 = 目标保证金 / 每张占用保证金, 按步长取整, 不低于最小下单。
+    ★2026-10-04 方案A(用户裁定): 优先用【交易所口径的真实每张占用】(mgn_per_contract, 由
+      main.real_margin_per_contract 反推)。因为 OKX 对 XAU 实收保证金并不等于"名义÷设置杠杆"
+      (账户设50倍却按≈25倍收, 且交易所会自行变动), 用"实际占用"换算才能保证出来就是 5U。
+      取不到实测值时, 退回"名义÷杠杆"的估算(leverage)。"""
     spec = C.INST_SPECS.get(inst_id)
     if not spec:
         return None
     lev = leverage or C.LEVERAGE_FIXED
     _mgn = (getattr(C, "INST_MARGIN_USD", None) or {}).get(inst_id, C.MARGIN_PER_TRADE)
-    notional = _mgn * lev
-    raw_lots = notional / (spec["ctVal"] * price)
+    src = "assumed"
+    if mgn_per_contract and mgn_per_contract > 0:
+        raw_lots = _mgn / mgn_per_contract                 # ★按交易所实际占用换算
+        src = "exchange"
+    else:
+        raw_lots = (_mgn * lev) / (spec["ctVal"] * price)
     lot = spec["lotSz"]
     lots = max(round(raw_lots / lot) * lot, spec["minSz"])
     actual_notional = lots * spec["ctVal"] * price
-    actual_margin = actual_notional / lev
+    actual_margin = round(lots * mgn_per_contract, 2) if src == "exchange" else round(actual_notional / lev, 2)
     return {"lots": round(lots, 6), "notional": round(actual_notional, 2),
-            "margin": round(actual_margin, 2), "leverage": lev,
+            "margin": round(actual_margin, 2), "leverage": lev, "margin_src": src,
+            "per_contract": round(mgn_per_contract, 6) if src == "exchange" else None,
             "risk_amount": round(actual_margin, 2), "stop_pct": round(100.0 / lev, 2)}
+
 
 # ★2026-10-03 用户裁定: 爆仓价一律以【交易所返回的 liqPx】为准, 本地不做任何估算。
 #   原 liquidation_price() / liquidation_sl() 已删除 —— 它们用 MMR_ESTIMATE 臆算爆仓价,
