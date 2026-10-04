@@ -18,31 +18,31 @@
   },
   {
    "inst": "BTC-USDT-SWAP",
-   "direction": "short",
-   "entry": 84947.5,
-   "sl": 84989.8737,
-   "tp": 84811.7526,
+   "direction": "long",
+   "entry": 85085.0,
+   "sl": 84888.23465,
+   "tp": 85432.6307,
    "size": 0.0057,
    "ratio": 1.0,
    "risk_free": false,
    "tp1_hit": false,
    "leverage": 100.0,
    "profile": "1-15",
-   "run_id": 1791099936.8840485,
-   "opened": 1791099941,
-   "liq_px": 85540.4
+   "run_id": 1791100848.568925,
+   "opened": 1791100852,
+   "liq_px": 84487.6
   }
  ],
  "daily": {
   "date": "2026-10-04",
-  "trades": 4,
+  "trades": 5,
   "by_profile": {
-   "1-15": 4
+   "1-15": 5
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791099936.8840485,
- "run_count_today": 72,
+ "last_run_ts": 1791100848.568925,
+ "run_count_today": 73,
  "history": [
   {
    "type": "signal",
@@ -186,16 +186,32 @@
    "ts": 1791099941.3600764,
    "profile": "1-15",
    "detail": "BTC做空 · 进84,930 损84,990 标84,812 · RR1:2"
+  },
+  {
+   "type": "exit",
+   "ts": 1791100851.7446187,
+   "profile": "1-15",
+   "pnl": 0.0,
+   "entry": 84947.5,
+   "exit": 84947.5,
+   "detail": "[1-15] BTC SHORT +0.00U(交易所端)"
+  },
+  {
+   "type": "signal",
+   "ts": 1791100852.9445834,
+   "profile": "1-15",
+   "detail": "BTC做多 · 进85,070 损84,888 标85,433 · RR1:2"
   }
  ],
  "pushed_signals": [
   "1-15|BTC-USDT-SWAP|short|85040",
   "1-15|XAU-USDT-SWAP|short|4140",
-  "1-15|BTC-USDT-SWAP|short|84990"
+  "1-15|BTC-USDT-SWAP|short|84990",
+  "1-15|BTC-USDT-SWAP|long|84890"
  ],
  "daily_report_date": "2026-10-04",
  "market_snapshot": [
-  "· **BTC** 下跌 | FVG 84,872~84,967 | 扫上84,995(1点)",
+  "· **BTC** 上涨 | FVG 84,872~84,967 | 扫上84,995(1点)",
   "· **黄金** 下跌 | FVG 4,140~4,140 | 扫上4,141(2点)"
  ],
  "pushed_watch": [],
