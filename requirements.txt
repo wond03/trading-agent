@@ -1,1 +1,6 @@
+# 暗夜猎手 NightHunter 依赖
 requests
+matplotlib
+pandas>=2.0
+# ★2026-10-04 用户裁定「用别人成熟的代码」: swing/BOS/CHoCH 与 FVG 判定 = 开源库
+smartmoneyconcepts==0.0.27
