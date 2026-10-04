@@ -25,7 +25,7 @@ jobs:
           python-version: '3.12'
       - name: 安装依赖
         run: |
-          pip install requests matplotlib
+          pip install requests matplotlib pandas smartmoneyconcepts==0.0.27
           sudo apt-get update -qq
           sudo apt-get install -y -qq fonts-noto-cjk
       - name: 运行盯盘引擎
