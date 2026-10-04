@@ -999,6 +999,11 @@ def run_once():
                             _cur = client.tp_sl_open(inst_id, _psh)
                         except Exception:
                             _cur = None
+                        if _cur is None:
+                            print(f"[读回自检] {inst_id} 交易所条件单查询失败 → 本轮跳过补挂判断")
+                        else:
+                            _dbg = {k: (v or {}).get("triggerPrice") for k, v in _cur.items()}
+                            print(f"[读回自检] {inst_id} 交易所保护单={_dbg} live={None if _live is None else len(_live)}")
                         if _cur:
                             for _k, _row in (("tp", _cur.get("tp")), ("sl", _cur.get("sl"))):
                                 if not _row or not _row.get("algoId"):
@@ -1012,8 +1017,9 @@ def run_once():
                                         p[_k] = _v
                                 except Exception:
                                     pass
-                        if _live is not None:
-                            if p.get("tp_algo_id") not in _live:
+                        # ★只减不增: 只有"读回成功且确实没有"才补挂; 查不到一律跳过(防重复挂单)
+                        if _cur is not None:
+                            if not _cur.get("tp"):
                                 _r = client.place_tp_order(inst_id, _psh, p["size"], _tdh, p["tp"])
                                 _dd = ((_r.get("data") or [{}])[0] or {})
                                 print(f"[补挂TP] {inst_id} sz={p['size']} px={p['tp']} code={_r.get('code')} sCode={_dd.get('sCode')} msg={_r.get('msg') or _dd.get('sMsg')} | {json.dumps(_r, ensure_ascii=False)[:300]}")
@@ -1021,7 +1027,7 @@ def run_once():
                                     p["tp_algo_id"] = _dd.get("algoId"); _fixed.append("止盈")
                                 else:
                                     _failed.append(f"止盈[{_dd.get('sCode') or _r.get('code')}:{_dd.get('sMsg') or _r.get('msg')}]")
-                            if p.get("sl_algo_id") not in _live:
+                            if not _cur.get("sl"):
                                 _r = client.place_sl_order(inst_id, _psh, p["size"], _tdh, p["sl"])
                                 _dd = ((_r.get("data") or [{}])[0] or {})
                                 print(f"[补挂SL] {inst_id} sz={p['size']} px={p['sl']} code={_r.get('code')} sCode={_dd.get('sCode')} msg={_r.get('msg') or _dd.get('sMsg')} | {json.dumps(_r, ensure_ascii=False)[:300]}")
