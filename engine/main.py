@@ -809,11 +809,9 @@ def run_once():
                 # ---- 风控/连亏保护 (按方案独立) ----
                 risk = RiskManager(capital_usd=CAPITAL_USD, risk_score=3)
                 risk.daily_trades = state["daily"]["by_profile"].get(pname, 0)
-                _rec = [h for h in state.get("history", [])
-                        if h.get("type") == "exit" and h.get("profile") == pname][-3:]
-                halt_new = len(_rec) == 3 and all(h.get("pnl", 0) <= 0 for h in _rec)
-                if halt_new:
-                    print(f"[连亏保护] {plabel} 最近3笔全亏, 本轮不开新仓")
+                # ★2026-10-04 用户裁定「不要拦截」: 【连亏保护已关闭】
+                #   原规则: 最近3笔全亏 → 本轮跳过开仓。现一律允许开仓(不再拦截信号)。
+                halt_new = False
 
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
