@@ -1,37 +1,53 @@
 # 暗夜猎手 (NightHunter) · 结构引擎
 # 结构引擎 —— 森林查尔斯课程模块A实现
 #
-# ★★2026-10-04 用户裁定: 「改的地方用开源库的 bos 和 choch, 周期 1+15」
-#    本文件内 BOS/CHoCH 为 **开源库 smartmoneyconcepts(joshyattridge ⭐2043) 的逐字移植**:
-#      · _swing_hl()      ← smc.swing_highs_lows()   (左右各 S 根的窗口极值 + 连续同类合并)
-#      · _bos_choch()     ← smc.bos_choch()          (最近4个swing点的单调结构 → BOS/CHoCH, 按收盘判定)
-#    移植而非 import: 线上不新增依赖; 且可加"无未来函数"守卫(见 C.SMC_STRICT_CAUSAL)
-#    ★守卫原因: 原库允许"break 发生在 swing 确认之前"(break 最早在 pivot+2, 而 swing 要 pivot+S 才确认)
-#      → 回测会偷看未来。开启守卫后 break 只在 pivot+S 之后才认。
-#    周期: 1H(背景/趋势) + 15m(入场), 见 config.STRATEGY_PROFILES
+# ★★2026-10-04 用户裁定: 「用别人成熟的代码」—— 本文件的 BOS/CHoCH 与 swing 判定
+#    **直接调用开源库 smartmoneyconcepts (joshyattridge, MIT, ⭐2k+)**，不再手搓移植:
+#      · SMC.smc.swing_highs_lows(ohlc, swing_length=s)   → swing 高/低
+#      · SMC.smc.bos_choch(ohlc, shl, close_break=True)   → BOS / CHoCH
+#    · 对外接口不变(StructureEngine 的 trend/events/swings/last_swing_high/low)
+#    · 仅保留一处【无未来函数守卫】(开源库原版允许 break 早于 swing 确认 → 回测偷看未来)
+#  周期: 1H(背景/趋势) + 15m(入场), 见 config.STRATEGY_PROFILES
 #
 #   · BOS   = 结构【延续】(顺势)      · CHoCH = 结构【变盘】(逆势)
-#   · 斐波腿 = 最近确认 swing 低 ↔ 最近确认 swing 高
 #   · 影线永不参与结构判定(影线破位 = 假突破/截取, 归 LiquidityEngine)
+import pandas as pd
+import smartmoneyconcepts as SMC
+
 import config as C
-from collections import deque
+
+# 依赖: pandas, smartmoneyconcepts  (见 requirements.txt / watch.yml 的 pip install)
 
 
 class Candle:
     __slots__ = ("ts", "open", "high", "low", "close", "vol")
+
     def __init__(self, ts, o, h, l, c, v):
         self.ts, self.open, self.high, self.low, self.close, self.vol = ts, o, h, l, c, v
 
 
+def ohlc_df(candles):
+    """Candle 列表 → smartmoneyconcepts 需要的 DataFrame(列名小写 open/high/low/close/volume)"""
+    df = pd.DataFrame({
+        "open": [c.open for c in candles],
+        "high": [c.high for c in candles],
+        "low": [c.low for c in candles],
+        "close": [c.close for c in candles],
+        "volume": [c.vol for c in candles],
+    })
+    df.index = pd.RangeIndex(len(candles))
+    return df
+
+
 def atr(candles, period=14):
     """⚠️ ATR 属【体系外指标】—— 课程明确否定技术指标
-    (BV1w8cuzmEcp[011min]「什么 m a c d、布林带 这些都是废的」; BV1w8cuzmEDA[010min]「指标…没有用」)
+    (BV1w8cuzmEcp[011min]「什么 ma cdb、布林带 这些都是废的」; BV1w8cuzmEDA[010min]「指标…没有用」)
     2026-10-02 交易逻辑中的 ATR 用法已全部移除; 此函数仅为历史诊断脚本保留, 新代码请勿使用"""
     if len(candles) < period + 1:
         return 0
     trs = []
     for i in range(1, len(candles)):
-        c = candles[i]; p = candles[i-1]
+        c = candles[i]; p = candles[i - 1]
         trs.append(max(c.high - c.low, abs(c.high - p.close), abs(c.low - p.close)))
     trs = trs[-(period * 3):]
     return sum(trs[:period]) / period
@@ -40,7 +56,7 @@ def atr(candles, period=14):
 def find_swings(candles, left=None, right=None):
     """swing识别: 高/低点高于(低于)左右各N根 (基础窗口法)
     ⚠️ 仅为 liquidity.py / diag_pipeline.py 的诊断用途保留;
-       结构引擎(BOS/CHoCH)已改用 _swing_hl()(开源库口径, 高优先于低 + 内置合并)
+       结构引擎(BOS/CHoCH)已改用开源库 smartmoneyconcepts 的 swing_highs_lows()
     返回: swings = [(idx, 'H'|'L', price)], 已按时间排序"""
     left = left or C.SWING_LEFT
     right = right or C.SWING_RIGHT
@@ -64,148 +80,18 @@ def find_swings(candles, left=None, right=None):
 
 
 # ============================================================================
-#  开源库移植区 (smartmoneyconcepts · joshyattridge, MIT)
-# ============================================================================
-def _swing_hl(highs, lows, s):
-    """← smc.swing_highs_lows(ohlc, swing_length=s)
-    swing 高 = 该根最高价 == 窗口 highs[i-s+1 : i+s+1] 的最大值;
-    swing 低 = 该根最低价 == 同窗口最小值; 高优先(同一根既是最高又是最低 → 记高)。
-    再做"连续同类合并"(保留更高的高/更低的低), 最后把首尾两根设为反向标记。
-    返回 hl[i] ∈ {0(无), 1(swing高), -1(swing低)}"""
-    n = len(highs)
-    hl = [0] * n
-    if n < s + 1 or s < 1:
-        return hl
-    dq_mx, dq_mn = deque(), deque()
-    for j in range(n):
-        while dq_mx and highs[dq_mx[-1]] <= highs[j]:
-            dq_mx.pop()
-        dq_mx.append(j)
-        while dq_mn and lows[dq_mn[-1]] >= lows[j]:
-            dq_mn.pop()
-        dq_mn.append(j)
-        start = j - 2 * s + 1
-        while dq_mx and dq_mx[0] < start:
-            dq_mx.popleft()
-        while dq_mn and dq_mn[0] < start:
-            dq_mn.popleft()
-        if j >= 3 * s - 1:                     # ★与 pandas rolling(2s) 的位置计数等价(不是 2s-1)
-            i = j - s
-            if highs[i] == highs[dq_mx[0]]:
-                hl[i] = 1
-            elif lows[i] == lows[dq_mn[0]]:
-                hl[i] = -1
-    # 连续同类合并: 相邻同类型只留更极端的那个
-    while True:
-        pos = [i for i in range(n) if hl[i] != 0]
-        if len(pos) < 2:
-            break
-        rem = set()
-        for a in range(len(pos) - 1):
-            p, q = pos[a], pos[a + 1]
-            if hl[p] == 1 and hl[q] == 1:
-                rem.add(p if highs[p] < highs[q] else q)
-            elif hl[p] == -1 and hl[q] == -1:
-                rem.add(p if lows[p] > lows[q] else q)
-        if not rem:
-            break
-        for p in rem:
-            hl[p] = 0
-    # 首尾设为反向标记(原库行为): 保证 swing 序列从两端都能闭合
-    pos = [i for i in range(n) if hl[i] != 0]
-    if pos:
-        if hl[pos[0]] == 1:
-            hl[0] = -1
-        if hl[pos[0]] == -1:
-            hl[0] = 1
-        if hl[pos[-1]] == -1:
-            hl[-1] = 1
-        if hl[pos[-1]] == 1:
-            hl[-1] = -1
-    return hl
-
-
-def _bos_choch(closes, highs, lows, hl, s, strict_causal=None):
-    """← smc.bos_choch(ohlc, swing_highs_lows, close_break=True)
-    取最近 4 个 swing 点 (o4=类型序, l4=价位序), 判单调结构:
-      BOS   多: [低,高,低,高] 且 l1<l2<l3<l4   / BOS   空: [高,低,高,低] 且 l1>l2>l3>l4
-      CHoCH 多: [低,高,低,高] 且 l4>l2>l1>l3   / CHoCH 空: [高,低,高,低] 且 l4<l2<l1<l3
-    事件落在"倒数第2个swing点", 价位 = 其 own level; 再由【收盘】穿越该价位定 BrokenIndex。
-    未被突破的事件丢弃; 被后续事件"覆盖"的早期事件也丢弃(原库 overrun 规则)。
-    ★strict_causal: True 时要求 break 发生在 swing 确认(pivot+s)之后 → 无未来函数。
-    返回 [(pivot_i, 'BOS'|'CHoCH', +1/-1, level, broken_i), ...]"""
-    if strict_causal is None:
-        strict_causal = getattr(C, "SMC_STRICT_CAUSAL", True)
-    n = len(closes)
-    bos = [0] * n
-    choch = [0] * n
-    lvl = [0.0] * n
-    lv_order, o_order, last_pos = [], [], []
-    for i in range(n):
-        if hl[i] == 0:
-            continue
-        lv_order.append(highs[i] if hl[i] == 1 else lows[i])
-        o_order.append(hl[i])
-        if len(lv_order) >= 4:
-            lp = last_pos[-2]
-            l1, l2, l3, l4 = lv_order[-4], lv_order[-3], lv_order[-2], lv_order[-1]
-            o4 = o_order[-4:]
-            bos[lp] = 1 if (o4 == [-1, 1, -1, 1] and l1 < l3 < l2 < l4) else 0
-            if bos[lp] != 0:
-                lvl[lp] = l2
-            bos[lp] = -1 if (o4 == [1, -1, 1, -1] and l1 > l3 > l2 > l4) else bos[lp]
-            if bos[lp] != 0:
-                lvl[lp] = l2
-            choch[lp] = 1 if (o4 == [-1, 1, -1, 1] and l4 > l2 > l1 > l3) else 0
-            if choch[lp] != 0:
-                lvl[lp] = l2
-            choch[lp] = -1 if (o4 == [1, -1, 1, -1] and l4 < l2 < l1 < l3) else choch[lp]
-            if choch[lp] != 0:
-                lvl[lp] = l2
-        last_pos.append(i)
-    # 突破确认(收盘穿越) + overrun 清理
-    broken = [0] * n
-    for i in range(n):
-        if bos[i] == 0 and choch[i] == 0:
-            continue
-        sgn = bos[i] if bos[i] != 0 else choch[i]
-        m0 = max(i + 2, i + s) if strict_causal else i + 2
-        j = 0
-        for m in range(m0, n):
-            if sgn > 0 and closes[m] > lvl[i]:
-                j = m
-                break
-            if sgn < 0 and closes[m] < lvl[i]:
-                j = m
-                break
-        if j:
-            broken[i] = j
-            for k in range(i):
-                if (bos[k] != 0 or choch[k] != 0) and broken[k] >= j:
-                    bos[k] = choch[k] = 0
-                    lvl[k] = 0
-                    broken[k] = 0
-    out = []
-    for i in range(n):
-        if (bos[i] != 0 or choch[i] != 0) and broken[i] != 0:
-            kind = "BOS" if bos[i] != 0 else "CHoCH"
-            sgn = bos[i] if bos[i] != 0 else choch[i]
-            out.append((i, kind, sgn, lvl[i], broken[i]))
-    return out
-
-
-# ============================================================================
-#  结构状态机
+#  结构状态机 (底层判定 = 开源库 smartmoneyconcepts)
 # ============================================================================
 class StructureEngine:
-    """结构状态机 —— BOS/CHoCH 由 _bos_choch() 给出(开源库口径)
+    """结构状态机 —— BOS/CHoCH 由开源库 smartmoneyconcepts 直接给出
     对外字段(与旧版一致, 上层无感):
       trend            'up'/'down'/None  = 最后一个结构事件的方向
       events           [(break_idx, 'BOS_up'|'BOS_down'|'CHoCH_up'|'CHoCH_down', level)]
       swings           [(idx, 'H'|'L', price)]
-      last_swing_high / last_swing_low   = 最近【已确认】swing 高/低 (斐波腿)
+      last_swing_high / last_swing_low   = 最近【已确认】swing 高/低
       seg_high / seg_low                 = 同上(兼容旧调用)
     """
+
     def __init__(self):
         self.swings = []
         self.trend = None
@@ -226,21 +112,43 @@ class StructureEngine:
         if n < 3:
             self.events, self.swings = [], []
             return self.snapshot()
-        highs = [c.high for c in candles]
-        lows = [c.low for c in candles]
-        closes = [c.close for c in candles]
         s = max(1, C.SWING_LEFT)
-        hl = _swing_hl(highs, lows, s)
-        self.swings = [(i, "H" if hl[i] == 1 else "L", highs[i] if hl[i] == 1 else lows[i])
-                       for i in range(n) if hl[i] != 0]
-        raw = _bos_choch(closes, highs, lows, hl, s)
-        self.events = sorted(
-            [(b, f"{k}_{'up' if sgn > 0 else 'down'}", lv) for (_p, k, sgn, lv, b) in raw],
-            key=lambda x: x[0])
+        df = ohlc_df(candles)
+
+        # ---- swing 高/低 (开源库) ----
+        shl = SMC.smc.swing_highs_lows(df, swing_length=s)
+        hl = shl["HighLow"].to_numpy()
+        lv = shl["Level"].to_numpy()
+        self.swings = [(i, "H" if hl[i] == 1 else "L", float(lv[i]))
+                       for i in range(n) if not pd.isna(hl[i])]
+
+        # ---- BOS / CHoCH (开源库, 收盘判定) ----
+        bc = SMC.smc.bos_choch(df, shl, close_break=True)
+        B = bc["BOS"].to_numpy()
+        H = bc["CHOCH"].to_numpy()
+        L = bc["Level"].to_numpy()
+        BI = bc["BrokenIndex"].to_numpy()
+        strict = getattr(C, "SMC_STRICT_CAUSAL", True)
+        ev = []
+        for i in range(n):
+            if pd.isna(B[i]) and pd.isna(H[i]):
+                continue
+            if pd.isna(BI[i]):
+                continue
+            bi = int(BI[i])
+            # ★无未来函数守卫: 突破必须发生在 swing 确认(i+s)之后
+            #   (开源库原版允许 break 最早在 i+2, 而 swing 要到 i+s 才确认 → 回测偷看未来)
+            if strict and bi < i + s:
+                continue
+            kind = "BOS" if not pd.isna(B[i]) else "CHoCH"
+            sgn = 1 if float(B[i] if not pd.isna(B[i]) else H[i]) > 0 else -1
+            ev.append((bi, f"{kind}_{'up' if sgn > 0 else 'down'}", float(L[i])))
+        self.events = sorted(ev, key=lambda x: x[0])
         self.trend = None
         for (_b, nm, _lv) in self.events:
             self.trend = "up" if nm.endswith("up") else "down"
-        # 斐波腿: 最近【已确认】swing(第 s 根之后才确认, 末 s 根不作数)
+
+        # 最近【已确认】swing(第 s 根之后才确认, 末 s 根不作数)
         lim = n - 1 - s
         hs = [x for x in self.swings if x[1] == "H" and x[0] <= lim]
         ls = [x for x in self.swings if x[1] == "L" and x[0] <= lim]
