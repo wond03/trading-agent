@@ -70,7 +70,8 @@ class EntryEngine:
             if not _sd:
                 return None
 
-        # ③ 入场信号: 15m 同向 CHoCH (必须"新鲜" —— 实盘每~15分钟一轮, 最多晚 ENTRY_MAX_AGE_BARS 根)
+        # ③ 入场信号: 15m 同向 CHoCH
+        #   ★2026-10-04 用户裁定: 【"够新"(≤N根)限制已删除】—— 不再看 CHoCH 发生在几根之前
         trigger = None
         if ltf_se is not None and ltf_candles:
             _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
@@ -78,10 +79,8 @@ class EntryEngine:
                 _last = _lx[-1]
                 _d = "up" if _last[1] == "CHoCH_up" else "down"
                 if _d == htf_trend and 0 <= _last[0] < len(ltf_candles):
-                    _age = len(ltf_candles) - 1 - _last[0]
-                    if _age <= C.ENTRY_MAX_AGE_BARS:
-                        trigger = ("15m 反转预警↑(CHoCH)" if _d == "up" else "15m 反转预警↓(CHoCH)")
-                        steps["turn_bar"] = _last[0]
+                    trigger = ("15m 反转预警↑(CHoCH)" if _d == "up" else "15m 反转预警↓(CHoCH)")
+                    steps["turn_bar"] = _last[0]
         steps["trigger"] = trigger
         if not trigger:
             return None
@@ -95,11 +94,12 @@ class EntryEngine:
             sl = leg_lo * (1 - C.SL_BUFFER_PCT)
             tp = leg_hi
             risk, rew = px - sl, tp - px
+        # 几何有效性(非门槛): 止损必须在价格正确一侧, 否则说明结构位已被穿过、单子无意义
         if risk <= 0 or rew <= 0:
+            steps["geometry_bad"] = (round(risk, 4), round(rew, 4))
             return None
         rr = rew / risk
-        if rr < C.MIN_RR:
-            return None
+        # ★2026-10-04 用户裁定: 【盈亏比门槛(原 rr>=1.5)已删除】—— rr 仅作信息展示
         _dir = "long" if htf_trend == "up" else "short"
         _rz = (f"1H{htf_trend} | 斐波50%={mid:.1f} 现价{px:.1f}[{'溢价' if premium else '折价'}]"
                f" → {trigger} | 损{sl:.1f} 标{tp:.1f} RR=1:{rr:.1f}")
