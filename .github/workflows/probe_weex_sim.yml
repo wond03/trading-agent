@@ -1,0 +1,17 @@
+name: probe-weex-sim
+# 探测 WEEX 合约 sim 接口是否真实存在 + 交易对清单(公开接口)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 探测
+        run: python probe_weex_sim.py
