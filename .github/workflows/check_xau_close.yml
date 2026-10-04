@@ -1,0 +1,21 @@
+name: check-xau-close
+# 跟进黄金平半仓订单是否成交, 成交后按剩余张数重挂保护单
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  chk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 跟进
+        env:
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+        run: python check_xau_close.py
