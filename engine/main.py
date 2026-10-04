@@ -473,9 +473,9 @@ def _close_position_now(client, state, p, sym_cfg, reason):
                 time.sleep(0.8)
         except Exception as e:
             print(f"[平仓异常] {inst_id} {e}")
-    ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
+    # ★WEEX(2026-10-04): size 单位 = 【币的数量】→ 盈亏 = 价差 × size, 不再乘 OKX 的 ctVal
     sign = 1 if p["direction"] == "long" else -1
-    pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
+    pnl = (exit_px - p["entry"]) * sign * p["size"]
     _nm = "BTC" if "BTC" in inst_id else "黄金"
     _sd = "多单" if p["direction"] == "long" else "空单"
     _pf = C.STRATEGY_PROFILES.get(p.get("profile", ""), {}).get("label", p.get("profile", ""))
@@ -489,16 +489,29 @@ def _close_position_now(client, state, p, sym_cfg, reason):
             f"**进出** {fmt_price(p['entry'])} → {fmt_price(exit_px)}（{_src}）\n"
             f"**盈亏** {pnl:+.2f}U\n**原因** {reason}")
 
-def _last_realized(client, inst_id, pos_side):
-    """取该品种最近一笔已平仓的交易所实现盈亏与平仓均价(用于'交易所端自动平仓'对账)"""
+def _last_realized(client, inst_id, pos_side, entry=None, size=None, direction=None):
+    """取【平仓成交价】与【实现盈亏】(用于"交易所端自动平仓"对账)。
+    ★WEEX(2026-10-04): 没有成交明细接口 → 从 /sim/order/history 里找"平仓那一笔"(与持仓方向相反、
+      状态 FILLED)的最新成交均价, 再按 价差×数量 算盈亏(数量单位=币)。
+      取不到就返回 (0.0, None), 由调用方如实展示, 不编数。"""
     try:
-        h = client._get("/api/v5/account/positions-history",
-                        {"instType": "SWAP", "instId": inst_id, "limit": "5"})
-        for x in (h.get("data") or []):
-            if x.get("posSide") == pos_side:
-                return float(x.get("realizedPnl") or 0), float(x.get("closeAvgPx") or 0)
+        j = client.get_fills(inst_id=inst_id, limit=50) or {}
+        rows = j.get("data") or []
+        want = "SELL" if str(pos_side).lower() == "long" else "BUY"
+        cand = [x for x in rows
+                if str(x.get("side") or "").upper() == want
+                and str(x.get("status") or "").upper() in ("FILLED", "PARTIALLY_FILLED")
+                and float(x.get("avgPrice") or 0) > 0]
+        if cand:
+            x = max(cand, key=lambda r: int(r.get("time") or 0))
+            _px = float(x.get("avgPrice"))
+            _pnl = 0.0
+            if entry and size and direction:
+                _s = 1 if direction == "long" else -1
+                _pnl = (_px - float(entry)) * _s * float(size)
+            return _pnl, _px
     except Exception as e:
-        print(f"[对账] 历史查询失败 {e}")
+        print(f"[对账] 平仓记录查询失败 {type(e).__name__} {e}")
     return 0.0, None
 
 def run_once():
@@ -665,7 +678,8 @@ def run_once():
                 continue
             _nm = "BTC" if "BTC" in _p["inst"] else "黄金"
             _pf = C.STRATEGY_PROFILES.get(_p.get("profile", ""), {}).get("label", _p.get("profile", ""))
-            _rp, _cpx = _last_realized(client, _p["inst"], _key[1])
+            _rp, _cpx = _last_realized(client, _p["inst"], _key[1], entry=_p.get("entry"),
+                                       size=_p.get("size"), direction=_p.get("direction"))
             state["positions"].remove(_p)
             state.setdefault("history", []).append({"type": "exit", "ts": time.time(),
                 "profile": _p.get("profile", ""), "pnl": round(_rp, 2),
@@ -1018,9 +1032,9 @@ def run_once():
                                     _src = "交易所成交价"
                             if not _closed:
                                 continue
-                            ctval = C.INST_SPECS.get(inst_id, {}).get("ctVal", 0)
+                            # ★WEEX: size = 币的数量 → 盈亏 = 价差 × size
                             sign = 1 if p["direction"] == "long" else -1
-                            pnl = (exit_px - p["entry"]) * sign * p["size"] * ctval
+                            pnl = (exit_px - p["entry"]) * sign * p["size"]
                             _ico = "✅" if pnl > 1e-9 else ("➖" if pnl > -1e-9 else "❌")
                             _sim = "（模拟）" if p.get("simulated") else ""
                             _t = " · ".join(x for x in [_nm, _sd, plabel] if x) + _sim
