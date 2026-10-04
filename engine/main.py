@@ -323,6 +323,45 @@ def resolve_leverage(client, inst_id, desired, td_mode, pos_side):
     print(f"[杠杆] {inst_id} 各档位均失败, 兜底10x")
     return 10
 
+def real_margin_per_contract(client, inst_id, price, td_mode="isolated"):
+    """★2026-10-04 方案A(用户裁定): 返回交易所口径下【每张合约实际占用保证金】(USDT)。
+    优先级:
+      ① 实测持仓反推 —— 用 margin/|pos| 得"每张占用", 再按"有效倍率"换算到当前价
+      ② 梯度保证金表 imr (/public/position-tiers) —— 官方初始保证金率
+      ③ 都取不到 → None(调用方退回"名义÷杠杆"估算)
+    理由: OKX 对 XAU 实收保证金 ≠ 名义÷设置杠杆(账户设50却按≈25收, 且会自己变),
+          只有按【实际占用】换算, 张数乘出来才真是 5U。"""
+    ctval = (C.INST_SPECS.get(inst_id) or {}).get("ctVal")
+    if not ctval:
+        return None
+    try:
+        for p in (client.get_positions(inst_id).get("data") or []):
+            pos = abs(float(p.get("pos") or 0))
+            mgn = float(p.get("margin") or 0)
+            apx = float(p.get("avgPx") or 0) or price
+            if pos > 0 and mgn > 0:
+                eff = ctval * apx * pos / mgn                       # 实测有效倍率
+                if eff > 0:
+                    per = ctval * price / eff
+                    print(f"[保证金] {inst_id} 实测每张占用 {per:.6f}U "
+                          f"(有效倍率 eff={eff:.2f}, 持仓{pos}张 margin={mgn:.4f})")
+                    return per
+    except Exception as e:
+        print(f"[保证金] {inst_id} 实测持仓读取失败 {type(e).__name__}")
+    try:
+        imr = client.position_tier_imr(inst_id, td_mode)
+        if imr and imr > 0:
+            if imr > 1:                                             # 部分接口返回百分比
+                imr /= 100.0
+            per = imr * ctval * price
+            print(f"[保证金] {inst_id} 梯度表 imr={imr} → 每张占用 {per:.6f}U")
+            return per
+    except Exception as e:
+        print(f"[保证金] {inst_id} 梯度表读取失败 {type(e).__name__}")
+    print(f"[保证金] {inst_id} 取不到实际占用, 退回 名义÷杠杆 估算")
+    return None
+
+
 # ---------- 交易所端止盈止损 (reduceOnly 条件单) ----------
 def adaptive_sl(entry_px, direction, sig_sl, sig_entry, leverage):
     """止损口径 (2026-10-03 用户裁定【B/C】): **严格执行 FVG(结构)止损**。
@@ -727,7 +766,11 @@ def run_once():
                         # 杠杆: 各品种实际上限不同(BTC=100, XAU=50); 写死100会被OKX拒(59102)
                         want_lev = C.INST_LEVER.get(inst_id, C.LEVERAGE_FIXED)
                         used_lev = resolve_leverage(client, inst_id, want_lev, _td, _ps) if not DRY_RUN else want_lev
-                        size = size_fixed_margin(px, inst_id, leverage=used_lev)
+                        size = size_fixed_margin(px, inst_id, leverage=used_lev,
+                                                 mgn_per_contract=(None if DRY_RUN else
+                                                                   real_margin_per_contract(client, inst_id, px, _td)))
+                        print(f"[仓位] {inst_id} {size['lots']}张 名义{size['notional']}U "
+                              f"保证金{size['margin']}U (来源={size.get('margin_src')})")
                         sl_use, liq_px = adaptive_sl(sig.entry, sig.direction, sig.sl, sig.entry, used_lev)
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
                         _opened = False
