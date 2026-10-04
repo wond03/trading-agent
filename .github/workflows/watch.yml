@@ -30,9 +30,10 @@ jobs:
           sudo apt-get install -y -qq fonts-noto-cjk
       - name: 运行盯盘引擎
         env:
-          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
-          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
-          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          # ★2026-10-04 用户裁定: 下单已从 OKX 整体切到 WEEX 模拟盘(不再保留 OKX)
+          WEEX_API_KEY: ${{ secrets.WEEX_API_KEY }}
+          WEEX_API_SECRET: ${{ secrets.WEEX_API_SECRET }}
+          WEEX_API_PASSPHRASE: ${{ secrets.WEEX_API_PASSPHRASE }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           DRY_RUN: "0"          # 真实模拟盘交易
           CAPITAL_USD: "100000" # 模拟盘账户资金
