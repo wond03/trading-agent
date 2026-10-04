@@ -57,9 +57,9 @@ class ExitEngine:
         # ---- 规则D2: 浮盈达 1 倍保证金(=MARGIN_PER_TRADE, 当前5U) → 上保本 ----
         #   2026-10-03 用户裁定: 上保本触发条件改为"浮盈≥5U", 不再用"摸前高/前低"
         if not pos.risk_free:
-            _ctv = C.INST_SPECS.get(getattr(pos, "inst", None) or "", {}).get("ctVal", 0)
+            # ★WEEX(2026-10-04): pos.lots = 【币的数量】→ 浮盈 = 价差 × 数量(不再乘 OKX 的 ctVal)
             _sign = 1 if pos.direction == "long" else -1
-            _pnl = (bar.close - pos.entry) * _sign * (pos.lots or 0) * _ctv
+            _pnl = (bar.close - pos.entry) * _sign * (pos.lots or 0)
             if _pnl >= C.MARGIN_PER_TRADE:
                 pos.sl = max(pos.sl, pos.entry) if pos.direction == "long" else min(pos.sl, pos.entry)
                 pos.risk_free = True
