@@ -33,7 +33,8 @@
    "profile": "1-15",
    "run_id": 1791153059.8182387,
    "opened": 1791153064,
-   "liq_px": 85674.2
+   "liq_px": 85674.2,
+   "tpsl_fail": "止盈(交易所端无TP条件单)|止损(交易所端无SL条件单)"
   }
  ],
  "daily": {
@@ -44,8 +45,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791153059.8182387,
- "run_count_today": 32,
+ "last_run_ts": 1791153943.6529062,
+ "run_count_today": 33,
  "history": [
   {
    "type": "signal",
