@@ -996,6 +996,12 @@ def run_once():
                         #   ① 开仓时内联生成的 TP/SL 在此被"认领" → 不会被误判成丢失而重复补挂
                         #   ② 你手动改过触发价 → 本地跟着改(引擎的出场判断才会用交易所真实止损)
                         try:
+                            _st_r, _j_r = client.t._call("GET", "/capi/v3/openAlgoOrders",
+                                                        params={"page": "1", "limit": "100"})
+                            print(f"[读回DEBUG] http={_st_r} raw={str(_j_r)[:280]}")
+                        except Exception as _e:
+                            print(f"[读回DEBUG] 异常 {type(_e).__name__}: {_e}")
+                        try:
                             _cur = client.tp_sl_open(inst_id, _psh)
                         except Exception:
                             _cur = None
