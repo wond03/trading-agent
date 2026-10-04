@@ -231,14 +231,15 @@ class WeexTrade:
         return st, rows
 
     def place_algo(self, inst_id, side, position_side, qty, order_type, trigger,
-                   reduce_only=True, working_type="CONTRACT_PRICE"):
-        """补挂条件单。order_type: TAKE_PROFIT_MARKET(止盈) / STOP_MARKET(止损)"""
+                   reduce_only=True):
+        """补挂条件单。order_type: TAKE_PROFIT_MARKET(止盈) / STOP_MARKET(止损)
+        ★字段名以官方 algoOrder 文档为准: `type`(不是 orderType) + `clientAlgoId`(不是 newClientOrderId)。
+          side 传与持仓相反方向 + positionSide 传持仓方向 = 只减仓(不会反向开仓)。"""
         body = {"symbol": self.real_symbol(inst_id), "side": side.upper(),
-                "positionSide": position_side.upper(), "orderType": order_type,
+                "positionSide": position_side.upper(), "type": order_type,
                 "quantity": str(self.round_qty(inst_id, qty)),
                 "triggerPrice": str(self.round_trigger(inst_id, trigger)),
-                "workingType": working_type, "reduceOnly": bool(reduce_only),
-                "newClientOrderId": self._gen_oid()}
+                "clientAlgoId": self._gen_oid(), "reduceOnly": bool(reduce_only)}
         return self._call("POST", "/capi/v3/algoOrder", body=body)
 
     def modify_tp_sl(self, algo_id, trigger, trigger_type="CONTRACT_PRICE"):
