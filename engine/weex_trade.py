@@ -138,6 +138,17 @@ class WeexTrade:
         p = int(sp.get("pricePrecision", 1))
         return round(float(px), p)
 
+    # ★2026-10-04 实测: 黄金(TRADIFI_PERPETUAL/Metals)的【止盈止损触发价】必须对齐 0.1,
+    #   比 exchangeInfo 里的 pricePrecision=2 更粗 → 报 -1054 "matches the stepSize '0.1' requirement"
+    TRIGGER_PRECISION = {"XAUTUSDT": 1, "XAUTSUSDT": 1}
+
+    def round_trigger(self, inst_id, px):
+        """止盈/止损触发价的取整精度(比下单价更保守)"""
+        _, real = SYMBOL_MAP.get(inst_id, (None, None))
+        if real in self.TRIGGER_PRECISION:
+            return round(float(px), self.TRIGGER_PRECISION[real])
+        return round(float(px), int((self.spec(inst_id) or {}).get("pricePrecision", 1)))
+
     # ================= 查询 =================
     def get_balance(self):
         return self._call("GET", "/capi/v3/sim/balance")
@@ -196,10 +207,10 @@ class WeexTrade:
             body["timeInForce"] = "GTC"
             body["price"] = str(self.round_px(inst_id, price))
         if tp:
-            body["tpTriggerPrice"] = str(self.round_px(inst_id, tp))
+            body["tpTriggerPrice"] = str(self.round_trigger(inst_id, tp))
             body["TpWorkingType"] = tp_working
         if sl:
-            body["slTriggerPrice"] = str(self.round_px(inst_id, sl))
+            body["slTriggerPrice"] = str(self.round_trigger(inst_id, sl))
             body["SlWorkingType"] = sl_working
         return self._call("POST", "/capi/v3/sim/order", body=body)
 
