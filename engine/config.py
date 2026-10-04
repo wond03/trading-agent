@@ -31,8 +31,20 @@ LEVERAGE_FIXED = 100        # 固定 100 倍
 #   (见 main.real_margin_per_contract: 实测持仓反推 > 梯度保证金表 imr > 退回名义÷杠杆)。
 #   背景: OKX 对 XAU-USDT-SWAP 实收保证金 ≠ 名义÷设置杠杆(账户设50倍, 实收≈25倍, 且会自行变动),
 #   只按公式算会开出 10U 的仓。改用实际占用后: XAU≈30张、BTC≈0.59张, 两者实收都≈5U。
-INST_MARGIN_USD = {"BTC-USDT-SWAP": 5.0, "XAU-USDT-SWAP": 5.0}
-INST_LEVER = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 50}   # 各品种实际上限(OKX实测: XAU上限50)
+INST_MARGIN_USD = {"BTC-USDT-SWAP": 5.0, "XAU-USDT-SWAP": 5.0}   # 【OKX 旧口径, 已弃用(仅存档)】
+INST_LEVER = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 50}        # 【OKX 旧口径, 已弃用(仅存档)】
+
+# ---------- ★2026-10-04 用户裁定: 下单从 OKX 整体切到【WEEX 模拟盘】, 不再保留 OKX ----------
+#   接口: https://api-contract.weex.com 的 /capi/v3/sim/*(仅 余额/持仓/下单/历史 四个)
+#   下单数量 = 【币的数量】(不是张数): 0.0059 BTC / 0.121 XAUT。张数=币量/contractVal。
+#   止盈止损 = 下单时内联 tpTriggerPrice/slTriggerPrice 一并提交(无独立条件单接口)。
+#   平仓 = 反向市价单; 没有撤单接口 → 全用市价单, 成交靠轮询持仓确认。
+WEEX_MARGIN_USD = 5.0          # 每单目标保证金(USDT; 模拟盘计价资产为 SUSDT)
+# 杠杆: sim 接口【不能设置杠杆】→ 以【你在 WEEX App 里给该合约设的杠杆】为准。
+#   下面的值只是"首单"用的假设值; 开仓成交后会从持仓返回的 leverage 自动校正并写入 state。
+WEEX_LEVERAGE = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 100}
+# 交易对映射(内部品种名 → 模拟盘下单符号): 见 engine/weex_trade.SYMBOL_MAP
+#   BTC-USDT-SWAP → BTCSUSDT ; XAU-USDT-SWAP → XAUTSUSDT(黄金是 XAUT)
 LIQ_BUFFER_PCT = 0.003      # [工] 仅用于"孤儿仓保命止损": 在【交易所返回的爆仓价】内 0.3% 处挂止损
 
 # ---------- 结构引擎 (模块A) ----------
