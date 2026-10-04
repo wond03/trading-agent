@@ -15,7 +15,8 @@
    "run_id": 1791140464.730915,
    "opened": 1791140470,
    "liq_px": 4174.8,
-   "tpsl_fail": "止盈[0:None]|止损[0:None]"
+   "tp_algo_id": "801713818030834394",
+   "sl_algo_id": "801713818865500890"
   },
   {
    "inst": "BTC-USDT-SWAP",
@@ -32,7 +33,8 @@
    "run_id": 1791142271.9232368,
    "opened": 1791142276,
    "liq_px": 84824.2,
-   "tpsl_fail": "止盈[0:None]|止损[0:None]"
+   "tp_algo_id": "801713811819070170",
+   "sl_algo_id": "801713812662125274"
   }
  ],
  "daily": {
@@ -43,8 +45,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791143047.658078,
- "run_count_today": 18,
+ "last_run_ts": 1791143462.7482264,
+ "run_count_today": 19,
  "history": [
   {
    "type": "signal",
