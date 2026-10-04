@@ -121,13 +121,19 @@ class WeexBroker:
         return {"code": "0", "data": rows}
 
     def algo_ids(self, inst_id):
-        """该品种当前所有条件单的 algoId 集合(给 main 的自愈逻辑用)"""
+        """该品种当前条件单的 algoId 集合。
+        ★查询失败(非200)返回 None = "未知" → main 里 `if _live is not None` 会【跳过补挂】,
+          避免"查不到"被误判成"没有挂单"而重复补挂(实测: 该接口传 symbol 会返回空, 必须全量拉)。"""
         st, rows = self.t.algo_orders(inst_id)
+        if st != 200:
+            return None
         return {str(x.get("algoId")) for x in rows if x.get("algoId")}
 
     def tp_sl_open(self, inst_id, pos_side=None):
-        """★读回交易所真实保护单: {"tp":行, "sl":行}(无则 None)。用于自检/对账。"""
+        """★读回交易所真实保护单: {"tp":行, "sl":行}(无则 None)。用于自检/对账。查询失败返回 None。"""
         st, rows = self.t.algo_orders(inst_id)
+        if st != 200:
+            return None
         out = {"tp": None, "sl": None}
         ps = (pos_side or "").upper()
         for x in rows:
