@@ -27,6 +27,10 @@ STRATEGY_PROFILES = {
 # ---------- 仓位模式(用户指定): 固定保证金 × 固定杠杆 ----------
 MARGIN_PER_TRADE = 5.0      # 每单保证金 5 USDT
 LEVERAGE_FIXED = 100        # 固定 100 倍
+# ★2026-10-04 用户裁定: 黄金单名义砍半 → 实收保证金回到 ~5U
+#   原因: OKX(演示盘) 对 XAU-USDT-SWAP 实收保证金 ≈ 25 倍(账户设 50 却按 25 收), 60张要 ≥10U
+#   改法: 黄金目标保证金 2.5U × 50倍 = 125U 名义 → ≈30张 → 实收 ≈5U
+INST_MARGIN_USD = {"BTC-USDT-SWAP": 5.0, "XAU-USDT-SWAP": 2.5}
 INST_LEVER = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 50}   # 各品种实际上限(OKX实测: XAU上限50)
 LIQ_BUFFER_PCT = 0.003      # [工] 仅用于"孤儿仓保命止损": 在【交易所返回的爆仓价】内 0.3% 处挂止损
 
