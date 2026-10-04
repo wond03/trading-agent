@@ -16,22 +16,6 @@
    "opened": 1791153064,
    "liq_px": 85674.2,
    "tpsl_fail": "止盈(交易所端无TP条件单)|止损(交易所端无SL条件单)"
-  },
-  {
-   "inst": "XAU-USDT-SWAP",
-   "direction": "long",
-   "entry": 4146.5,
-   "sl": 4136.29082,
-   "tp": 4230.523333333333,
-   "size": 0.12,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 100.0,
-   "profile": "1-15",
-   "run_id": 1791154858.5694375,
-   "opened": 1791154864,
-   "liq_px": 4111.2
   }
  ],
  "daily": {
@@ -42,8 +26,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791154858.5694375,
- "run_count_today": 34,
+ "last_run_ts": 1791155750.082292,
+ "run_count_today": 35,
  "history": [
   {
    "type": "signal",
@@ -397,6 +381,15 @@
    "entry": 4139.6,
    "exit": 4146.5,
    "detail": "[1-15] 黄金 SHORT -0.83U"
+  },
+  {
+   "type": "exit",
+   "ts": 1791155756.7824264,
+   "profile": "1-15",
+   "pnl": -0.25,
+   "entry": 4146.5,
+   "exit": 4144.4,
+   "detail": "[1-15] 黄金 LONG -0.25U"
   }
  ],
  "pushed_signals": [
