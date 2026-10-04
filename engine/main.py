@@ -986,7 +986,7 @@ def run_once():
                     #   ★WEEX(2026-10-04): 止盈/止损随下单内联, 无独立条件单接口 → 整段跳过
                     if not DRY_RUN and getattr(client, "supports_algo", True):
                         _psh = "long" if p["direction"] == "long" else "short"
-                        _tdh = sym_cfg.get("td_mode", "isolated")
+    # (2026-10-05: _tdh/sym_cfg 的 td_mode 已无需, 补挂改为只读回)
                         _fixed, _failed = [], []
                         try:
                             _live = client.algo_ids(inst_id)
@@ -1023,26 +1023,16 @@ def run_once():
                                         p[_k] = _v
                                 except Exception:
                                     pass
-                        # ★只减不增: 只有"读回成功且确实没有"才补挂; 查不到一律跳过(防重复挂单)
+                        # ★2026-10-05: 本轮只做【读回自检 + 告警】, 【不自动补挂】。
+                        #   原因(实测): 经 /capi/v3/algoOrder 补挂的条件单会在几分钟内自行消失
+                        #   → 每轮都会判定"缺失"并重复挂单(实测一轮挂 4 张)。待查清消失原因再放开。
                         if _cur is not None:
                             if not _cur.get("tp"):
-                                _r = client.place_tp_order(inst_id, _psh, p["size"], _tdh, p["tp"])
-                                _dd = ((_r.get("data") or [{}])[0] or {})
-                                print(f"[补挂TP] {inst_id} sz={p['size']} px={p['tp']} code={_r.get('code')} sCode={_dd.get('sCode')} msg={_r.get('msg') or _dd.get('sMsg')} | {json.dumps(_r, ensure_ascii=False)[:300]}")
-                                if _r.get("code") == "0" and _dd.get("sCode") == "0" and _dd.get("algoId"):
-                                    p["tp_algo_id"] = _dd.get("algoId"); _fixed.append("止盈")
-                                else:
-                                    _failed.append(f"止盈[{_dd.get('sCode') or _r.get('code')}:{_dd.get('sMsg') or _r.get('msg')}]")
+                                _failed.append("止盈(交易所端无TP条件单)")
                             if not _cur.get("sl"):
-                                _r = client.place_sl_order(inst_id, _psh, p["size"], _tdh, p["sl"])
-                                _dd = ((_r.get("data") or [{}])[0] or {})
-                                print(f"[补挂SL] {inst_id} sz={p['size']} px={p['sl']} code={_r.get('code')} sCode={_dd.get('sCode')} msg={_r.get('msg') or _dd.get('sMsg')} | {json.dumps(_r, ensure_ascii=False)[:300]}")
-                                if _r.get("code") == "0" and _dd.get("sCode") == "0" and _dd.get("algoId"):
-                                    p["sl_algo_id"] = _dd.get("algoId"); _fixed.append("止损")
-                                else:
-                                    _failed.append(f"止损[{_dd.get('sCode') or _r.get('code')}:{_dd.get('sMsg') or _r.get('msg')}]")
+                                _failed.append("止损(交易所端无SL条件单)")
                         if _fixed:
-                            add("巡检", f"🛡️ **`{plabel}` {inst_id}** 已补挂交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
+                            add("巡检", f"🛡️ **`{plabel}` {inst_id}** 已同步交易所 {'/'.join(_fixed)}：止盈 {fmt_price(p['tp'])} / 止损 {fmt_price(p['sl'])}")
                         if _failed:
                             _fsig = "|".join(_failed)
                             if p.get("tpsl_fail") != _fsig:
