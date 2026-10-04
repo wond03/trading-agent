@@ -163,7 +163,7 @@ def why_no_signal(ee):
     if not st.get("htf_trend"):
         return "卡① 背景: 1H 结构方向未确立"
     if not st.get("trigger"):
-        return "卡② 入场: 15m 未出现同向 CHoCH(或不够新)"
+        return "卡② 入场: 15m 未回踩到【顺势方向】的 FVG"
     return "②之后被拦(止损/止盈/RR 不达标)"
 
 def _hist_inst(h):
