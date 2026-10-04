@@ -220,6 +220,11 @@ class WeexTrade:
         if isinstance(j, list):
             rows = j
         elif isinstance(j, dict):
+            _code = j.get("code")
+            if j.get("data") is None and _code not in (None, "0", 0):
+                # ★区分"接口报错"与"确实没有条件单": 报错要返回 st=-1(让上层跳过补挂, 不然会重复挂单)
+                print(f"[条件单查询] 接口异常 http={st} → {str(j)[:200]}")
+                return -1, []
             rows = j.get("data") or []
         else:
             rows = []
