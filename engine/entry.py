@@ -29,9 +29,9 @@ class EntryEngine:
 
     def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
         """返回 EntrySignal 或 None
-        课程原文流程(BV1H8cuzmEe5): ①大级别定趋势 ②下推一级找截取(1H需"双点") ③截取后(切小级别)看反转预警
-                                  ④预警后等回踩(踩回FVG) ⑤回踩后切小级别再等一次预警 → 开
-        ★2026-10-02 按原文重建: 反转预警必须【晚于截取】(用时间比, 非根数); 双点=两根不同K线各扫一点"""
+        ★2026-10-04 用户裁定 "全部按A": 入场改为【1H BOS/CHoCH 定方向 + 15m 回踩 FVG 进场(一碰就进)】
+          止损 = FVG 远端外侧 ; 止盈 = 固定 1:2
+        (旧"15m 同向 CHoCH 即入场"已停用)"""
         i = bar_i if bar_i is not None else len(candles) - 1
         steps = {}
         self.last_steps = steps   # ★诊断(2026-10-03): 同一个dict对象 → evaluate 返回 None 时,
@@ -42,25 +42,20 @@ class EntryEngine:
         if not htf_trend:
             return None
 
-        # ============ 视频法 (2026-10-04 用户裁定 A) ============
-        #   1H(背景) = 结构方向(BOS/CHoCH) + 【溢价/折价】过滤(斐波50%)
-        #   15m(入场) = 同向 CHoCH(实体收破"受保护的低/高点") 即入场信号
-        #   止损 = 结构高点(空)/低点(多)外侧 ; 止盈 = 对侧结构点 ; 不再固定 1:2
+        # ============ 1H方向 + 15m FVG回踩 (2026-10-04 用户裁定 "全部按A") ============
+        #   1H(背景) = 结构方向 BOS/CHoCH 定方向
+        #   15m(入场) = 价格回踩进【顺势方向】FVG 即入场(一碰就进, 不等确认)
+        #   止损 = FVG 远端外侧 ; 止盈 = 固定盈亏比 TP_RR(1:2)
         px = ltf_candles[-1].close if ltf_candles else candles[i].close
         _H = getattr(se, "last_swing_high", None)                 # (idx,'H',price)
         _L = getattr(se, "last_swing_low", None)
-        if not _H or not _L:
-            return None
-        leg_hi, leg_lo = max(_H[2], _L[2]), min(_H[2], _L[2])
-        if leg_hi <= leg_lo:
-            return None
-        mid = (leg_hi + leg_lo) / 2.0                             # 斐波 50% 分界
-        premium = px >= mid
-        # ★2026-10-04 用户裁定: 【溢价/折价闸门已删除】—— 不再用斐波50%拦截开单。
-        #   斐波腿/50% 仅保留作信息展示与 reason 文案, 不参与准入。
-        steps["zone"] = {"high": round(leg_hi, 4), "low": round(leg_lo, 4), "mid": round(mid, 4),
-                         "premium": bool(premium), "premium_ok": True}
-        # (可选门槛) 是否仍要求"扫到止损密集区" —— 视频法不需要, 由 C.REQUIRE_SWEEP 控制
+        # 斐波腿/50% 仅保留作信息展示, 不参与准入, 也不再做止损基准
+        if _H and _L and _H[2] != _L[2]:
+            leg_hi, leg_lo = max(_H[2], _L[2]), min(_H[2], _L[2])
+            mid = (leg_hi + leg_lo) / 2.0
+            steps["zone"] = {"high": round(leg_hi, 4), "low": round(leg_lo, 4),
+                             "mid": round(mid, 4), "premium": bool(px >= mid)}
+        # (可选门槛) 是否仍要求"扫到止损密集区" —— 默认关, 由 C.REQUIRE_SWEEP 控制
         if C.REQUIRE_SWEEP:
             _opp = ("BOS_down", "CHoCH_down") if htf_trend == "up" else ("BOS_up", "CHoCH_up")
             _seg = max([e[0] for e in se.events if e[1] in _opp], default=-1)
@@ -70,40 +65,42 @@ class EntryEngine:
             if not _sd:
                 return None
 
-        # ③ 入场信号: 15m 同向 CHoCH
-        #   ★2026-10-04 用户裁定: 【"够新"(≤N根)限制已删除】—— 不再看 CHoCH 发生在几根之前
-        trigger = None
-        if ltf_se is not None and ltf_candles:
-            _lx = [e for e in ltf_se.events if e[1] in ("CHoCH_up", "CHoCH_down")]
-            if _lx:
-                _last = _lx[-1]
-                _d = "up" if _last[1] == "CHoCH_up" else "down"
-                if _d == htf_trend and 0 <= _last[0] < len(ltf_candles):
-                    trigger = ("15m 反转预警↑(CHoCH)" if _d == "up" else "15m 反转预警↓(CHoCH)")
-                    steps["turn_bar"] = _last[0]
+        # ③ 入场信号: 15m 回踩【顺势方向】FVG
+        #   做多取最近未回填的 bull FVG ; 做空取最近未回填的 bear FVG
+        #   触发 = 最新 15m K 线【触及】该 FVG 区间(一碰就进)
+        trigger, _fvg = None, None
+        if ltf_le is not None and ltf_candles:
+            _want = "bull" if htf_trend == "up" else "bear"
+            _cands = [f for f in getattr(ltf_le, "fvgs", [])
+                      if f.get("kind") == _want and not f.get("filled")]
+            _bar = ltf_candles[-1]
+            _hit = [f for f in _cands if _bar.low <= f["top"] and _bar.high >= f["bottom"]]
+            if _hit:
+                _fvg = _hit[-1]                       # 最近的"被触及"FVG
+                trigger = (f"15m 回踩{'▲' if _want == 'bull' else '▼'}FVG "
+                           f"{_fvg['bottom']:.1f}~{_fvg['top']:.1f}")
+                steps["fvg"] = {"kind": _want, "bottom": round(_fvg["bottom"], 2),
+                                "top": round(_fvg["top"], 2), "born_idx": _fvg.get("born_idx")}
         steps["trigger"] = trigger
         if not trigger:
             return None
 
-        # ④ 止损 = 结构位; 止盈 = 固定盈亏比 TP_RR
-        #   ★2026-10-04 用户裁定: "止盈挂高点, 1:2 我们可以自己设置" → 不再用"对侧结构点"
-        if htf_trend == "down":
-            sl = leg_hi * (1 + C.SL_BUFFER_PCT)      # 空: 止损放腿高上方
-            risk = sl - px
-        else:
-            sl = leg_lo * (1 - C.SL_BUFFER_PCT)      # 多: 止损放腿低下方
+        # ④ 止损 = FVG 远端外侧(多: 下沿再下 / 空: 上沿再上) ; 止盈 = 固定盈亏比 TP_RR
+        #   ★用户裁定 "全部按A": 止损改挂 FVG 外沿(不再用"最近 swing 极值" → 修掉止损贴脸)
+        if htf_trend == "up":
+            sl = _fvg["bottom"] * (1 - C.SL_BUFFER_PCT)
             risk = px - sl
-        # 几何有效性(非门槛): 止损必须在价格正确一侧, 否则说明结构位已被穿过、单子无意义
+        else:
+            sl = _fvg["top"] * (1 + C.SL_BUFFER_PCT)
+            risk = sl - px
+        # 几何有效性: 止损必须在价格正确一侧(价格已冲出 FVG 则该单无意义)
         if risk <= 0:
             steps["geometry_bad"] = round(risk, 4)
             return None
         rr = C.TP_RR
         tp = (px - rr * risk) if htf_trend == "down" else (px + rr * risk)
-        rew = rr * risk
-        # ★2026-10-04 用户裁定: 【盈亏比门槛(原 rr>=1.5)已删除】—— rr 仅作信息展示
         _dir = "long" if htf_trend == "up" else "short"
-        _rz = (f"1H{htf_trend} | 斐波50%={mid:.1f} 现价{px:.1f}[{'溢价' if premium else '折价'}]"
-               f" → {trigger} | 损{sl:.1f} 标{tp:.1f} RR=1:{rr:.1f}")
+        _rz = f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} RR=1:{rr:.1f}"
         return EntrySignal(_dir, px, sl, tp, _rz, steps, "high" if rr >= 2 else "normal", 0)
 
     # ---------- 模型2: 双蜡烛真假突破 (规则C3, CRT核心) ----------
