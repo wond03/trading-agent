@@ -85,14 +85,25 @@ class EntryEngine:
         if not trigger:
             return None
 
-        # ④ 止损 = FVG 远端外侧(多: 下沿再下 / 空: 上沿再上) ; 止盈 = 固定盈亏比 TP_RR
-        #   ★用户裁定 "全部按A": 止损改挂 FVG 外沿(不再用"最近 swing 极值" → 修掉止损贴脸)
-        if htf_trend == "up":
-            sl = _fvg["bottom"] * (1 - C.SL_BUFFER_PCT)
-            risk = px - sl
-        else:
-            sl = _fvg["top"] * (1 + C.SL_BUFFER_PCT)
-            risk = sl - px
+        # ④ 止损 = 形成这段缺口的【起点K线】(FVG 左侧那根)的极值 外侧 ; 止盈 = 固定盈亏比 TP_RR
+        #   ★2026-10-05 用户裁定: 止损不再挂 FVG 区间外沿, 改挂 "FVG 左侧那根K线"的极值 ——
+        #     多头: 起点那根的最低价 × (1-buffer) ; 空头: 起点那根的最高价 × (1+buffer)
+        _li = int(_fvg.get("idx", 0)) - 1                # 缺口左侧(起点)那根 15m K线
+        if 0 <= _li < len(ltf_candles):
+            _lc = ltf_candles[_li]
+            if htf_trend == "up":
+                sl = _lc.low * (1 - C.SL_BUFFER_PCT)
+                risk = px - sl
+            else:
+                sl = _lc.high * (1 + C.SL_BUFFER_PCT)
+                risk = sl - px
+        else:                                            # 兜底: 退回 FVG 外沿
+            if htf_trend == "up":
+                sl = _fvg["bottom"] * (1 - C.SL_BUFFER_PCT)
+                risk = px - sl
+            else:
+                sl = _fvg["top"] * (1 + C.SL_BUFFER_PCT)
+                risk = sl - px
         # 几何有效性: 止损必须在价格正确一侧(价格已冲出 FVG 则该单无意义)
         if risk <= 0:
             steps["geometry_bad"] = round(risk, 4)
