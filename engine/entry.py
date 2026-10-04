@@ -85,6 +85,38 @@ class EntryEngine:
         if not trigger:
             return None
 
+        # ③.5 ★2026-10-05 按笔记《BOS和CHOCH概念》补: Internal 结构确认(只加门, 不改方向/止损/止盈)
+        #   笔记"实战配置逻辑": Swing定方向 → Internal CHoCH(回调结束) → Internal BOS(延续确认) → 进场
+        #   在 15m(Internal) 上核验: ①已出现【逆势 CHoCH】(回调) ②随后出现【顺势 BOS】(延续)
+        #   ③该 BOS 距当前不超过 INT_CONFIRM_MAX_AGE_BARS 根、且其后没再出现反向结构事件
+        if getattr(C, "INT_REQUIRE_CHOCH", False) or getattr(C, "INT_REQUIRE_BOS", False):
+            _evs = getattr(ltf_se, "events", []) or []
+            _n = len(ltf_candles) if ltf_candles else 0
+            _up = (htf_trend == "up")
+            _same_bos = "BOS_up" if _up else "BOS_down"
+            _opp_cho = "CHoCH_down" if _up else "CHoCH_up"
+            _opp_new = [e[0] for e in _evs if e[1] in (("BOS_down", "CHoCH_down") if _up else ("BOS_up", "CHoCH_up"))]
+            _k = int(getattr(C, "INT_CONFIRM_MAX_AGE_BARS", 8))
+            _ch_i = next((e[0] for e in reversed(_evs) if e[1] == _opp_cho), None)
+            _bo_i = next((e[0] for e in reversed(_evs) if e[1] == _same_bos), None)
+            _ok, _why = True, ""
+            if getattr(C, "INT_REQUIRE_BOS", False):
+                if _bo_i is None:
+                    _ok, _why = False, "无顺势BOS"
+                elif (_n - 1 - _bo_i) > _k:
+                    _ok, _why = False, f"BOS已过{_n - 1 - _bo_i}根(>{_k})"
+                elif any(x > _bo_i for x in _opp_new):
+                    _ok, _why = False, "BOS后又被反向结构打破"
+            if _ok and getattr(C, "INT_REQUIRE_CHOCH", False):
+                if _ch_i is None:
+                    _ok, _why = False, "无逆势CHoCH(回调)"
+                elif _bo_i is not None and _ch_i >= _bo_i:
+                    _ok, _why = False, "CHoCH晚于BOS(顺序不对)"
+            steps["internal"] = {"choch_idx": _ch_i, "bos_idx": _bo_i,
+                                 "age": (None if _bo_i is None else _n - 1 - _bo_i), "ok": _ok, "why": _why}
+            if not _ok:
+                return None
+
         # ④ 止损 = 形成这段缺口的【起点K线】(FVG 左侧那根)的极值 外侧 ; 止盈 = 目标浮盈金额
         #   ★2026-10-05 用户裁定: 止损不再挂 FVG 区间外沿, 改挂 "FVG 左侧那根K线"的极值 ——
         #     多头: 起点那根的最低价 × (1-buffer) ; 空头: 起点那根的最高价 × (1+buffer)
