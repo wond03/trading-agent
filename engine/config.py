@@ -43,6 +43,9 @@ WEEX_MARGIN_USD = 5.0          # 每单目标保证金(USDT; 模拟盘计价资�
 # 杠杆: sim 接口【不能设置杠杆】→ 以【你在 WEEX App 里给该合约设的杠杆】为准。
 #   下面的值只是"首单"用的假设值; 开仓成交后会从持仓返回的 leverage 自动校正并写入 state。
 WEEX_LEVERAGE = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 100}
+# ★2026-10-04: 是否接管"交易所有仓但本地无记录"的游离持仓。
+#   默认 False —— 模拟盘账户你本人也可能手动下单, 引擎不擅自接管别人的仓(只在推送里提醒)。
+ADOPT_ORPHANS = False
 # 交易对映射(内部品种名 → 模拟盘下单符号): 见 engine/weex_trade.SYMBOL_MAP
 #   BTC-USDT-SWAP → BTCSUSDT ; XAU-USDT-SWAP → XAUTSUSDT(黄金是 XAUT)
 LIQ_BUFFER_PCT = 0.003      # [工] 仅用于"孤儿仓保命止损": 在【交易所返回的爆仓价】内 0.3% 处挂止损
