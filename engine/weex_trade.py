@@ -224,8 +224,10 @@ class WeexTrade:
         else:
             rows = []
         if inst_id:
-            rs = (self.real_symbol(inst_id) or "").upper()
-            rows = [x for x in rows if (x.get("symbol") or "").upper() == rs]
+            # ★返回的 symbol 是【模拟盘名】(BTCSUSDT), 但也兼容真实名 → 两个都认
+            names = {(self.trade_symbol(inst_id) or "").upper(),
+                     (self.real_symbol(inst_id) or "").upper()}
+            rows = [x for x in rows if (x.get("symbol") or "").upper() in names]
         return st, rows
 
     def place_algo(self, inst_id, side, position_side, qty, order_type, trigger,
