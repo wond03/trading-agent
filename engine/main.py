@@ -17,6 +17,7 @@ STATE_FILE = os.path.join(BASE, "state.json")
 WECOM = os.environ.get(C.WECOM_WEBHOOK_ENV, "")
 DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
 CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "10000"))   # 账户资金(可用 GitHub Secrets 覆盖)
+_DEGRADE = set()   # ★2026-10-05: 本轮发生"降级到 Gate 现货"的品种(供 run_once 汇总告警)
 
 # ---------- 双方案配置 ----------
 PROFILES = getattr(C, "STRATEGY_PROFILES", {
@@ -325,6 +326,7 @@ def fetch_candles(client, inst_id, limit=300, tf=None):
             time.sleep(1.0)
     # ② Gate 现货 (最后兜底)
     print(f"[自愈] ⚠️ 降级到 Gate 现货({tf}) —— 黄金为 PAXG 代理, 与 WEEX 有基差")
+    _DEGRADE.add(inst_id)          # ★2026-10-05: 记录本轮发生过降级 → 由 run_once 推送告警(不再静默)
     k = _fetch_gate(inst_id, limit, gate_tf)
     print(f"[自愈] Gate 备用源成功: {len(k)}根")
     return k
@@ -1249,6 +1251,15 @@ def run_once():
                         p["risk_free"] = pos.risk_free
                         p["tp1_hit"] = pos.tp1_hit
                         p["ratio"] = pos.size
+
+    # ---- ★2026-10-05: 数据源降级告警(每天最多一次, 防刷屏) ----
+    #   背景: WEEX v2 接口下线后, 引擎曾静默降级到 Gate 现货, 信号口径被悄悄换掉而无人知晓。
+    if _DEGRADE and state.get("degrade_notified_date") != today:
+        push("🔴 **暗夜猎手 · 数据源降级告警**\n"
+             f"本轮以下品种的 WEEX 行情取数**失败, 已降级到 Gate 现货**：{'、'.join(sorted(_DEGRADE))}\n"
+             "> 降级后信号口径与回测不一致（黄金为 PAXG 代理，且与 WEEX 合约有基差）"
+             "→ **请检查 WEEX 行情接口是否又变更**")
+        state["degrade_notified_date"] = today
 
     # ---- 每日日报: 北京时间8点后当天首次运行触发(窗口放宽, 防止调度错过8点档) ----
     if os.environ.get("FORCE_DAILY") == "1":        # ★测试钩子: 强制推一次日报(不改状态)
