@@ -43,7 +43,13 @@ INST_LEVER = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 50}        # 【OKX 旧口�
 WEEX_MARGIN_USD = 5.0          # 每单目标保证金(USDT; 模拟盘计价资产为 SUSDT)
 # 杠杆: sim 接口【不能设置杠杆】→ 以【你在 WEEX App 里给该合约设的杠杆】为准。
 #   下面的值只是"首单"用的假设值; 开仓成交后会从持仓返回的 leverage 自动校正并写入 state。
-WEEX_LEVERAGE = {"BTC-USDT-SWAP": 100, "XAU-USDT-SWAP": 100}
+WEEX_LEVERAGE = {"BTC-USDT-SWAP": 25, "XAU-USDT-SWAP": 25}
+#   ★2026-10-06 用户已在 WEEX App 手动改为 25x → 此处同步(config 与 state["weex_leverage"] 两处都要)
+#   25x 的含义: 名义 = 保证金 × 25（5U → 125U；原 100x 是 500U）。
+#   好处: 爆仓价距进场由 ~0.7% 放宽到 ~2.8% → 结构止损再也不会"还没打到就先爆仓"。
+#   副作用: 同样 5U 保证金，盈亏的【美元幅度】缩到 1/4 →
+#           止盈不能再用"固定浮盈 10U"(25x 下 10U 浮盈 = 价格要走 8%!)，改用笔记的
+#           "前方流动性目标"; 若要维持原美元波动，需把每单保证金从 5U 提到约 20U。
 # ★2026-10-04: 是否接管"交易所有仓但本地无记录"的游离持仓。
 #   默认 False —— 模拟盘账户你本人也可能手动下单, 引擎不擅自接管别人的仓(只在推送里提醒)。
 ADOPT_ORPHANS = False
