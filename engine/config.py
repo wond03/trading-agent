@@ -62,6 +62,10 @@ SWING_RIGHT = 4       # [工] swing 极值确认窗口(右)
                       #   注: 运行期会被 STRATEGY_PROFILES[*].swing_left/right 覆盖, 两处必须一致。
 SMC_STRICT_CAUSAL = True   # [工] 无未来函数守卫: break 必须发生在 swing 确认(pivot+S)之后
                            #   (开源库原版允许 break 早于 swing 确认 = 回测偷看未来; True=修掉)
+# ★2026-10-05 按用户笔记《BOS和CHOCH概念》修正: CHoCH 只是【反转预警】, 不立即翻转趋势。
+#   True  = 趋势只由【BOS】翻转(反向 BOS 出现才确认反转); CHoCH 记入 trend_warn 作预警
+#   False = 旧口径(最后一个结构事件即翻转趋势, CHoCH 也立刻翻)
+CHOCH_IS_WARNING_ONLY = True
 
 # ---------- 流动性 / FVG (模块B) ----------
 IFVG_CONFIRM_BARS = (3, 8)     # iFVG牛熊转换: 下跌FVG出现后3~8根内回填(规则B4; 课程自称"可加可不加")
