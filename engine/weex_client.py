@@ -1,10 +1,17 @@
 # 暗夜猎手 (NightHunter) · WEEX 合约公开行情客户端
 # 用途: 【信号】与【回测】统一的数据源 (模拟盘交易见 weex_trade/weex_broker)
-# 依据: 用户上传的 WEEX 现货 V3 行情文档 + 本机实测 api-contract.weex.com 合约接口
-#   GET /capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=1000   → 最近 N 根(新→旧)
-#   GET /capi/v2/market/historyCandles?...&endTime=<ms>&limit=100             → 历史分页(向前翻)
-#   GET /capi/v2/market/tickers  /contracts                                   → 行情/合约规格
-# 返回行格式: ["开盘时间ms", open, high, low, close, volume, quoteVolume]  ★倒序, 数字为字符串
+#
+# ★★2026-10-05 重大迁移: WEEX **v2 接口已下线**(实测返回 40018 "The v2 service has been
+#   discontinued. Please use the v3 service.") → 此前引擎每轮取数失败、静默降级到 Gate 现货
+#   (黄金还是 PAXG 代理) ⇒ 信号与回测口径被悄悄换掉。现全部改走 V3:
+#     GET /capi/v3/market/klines?symbol=BTCUSDT&interval=1h&limit=1000          → 最近 N 根
+#     GET /capi/v3/market/historyKlines?...&startTime=<ms>&endTime=<ms>&limit=100 → 历史分页
+#     GET /capi/v3/market/ticker/24hr?symbol=BTCUSDT                            → 最新价
+#   ★symbol 命名也变了: 不再用 cmt_btcusdt, 而是 **BTCUSDT / XAUTUSDT**(大写、无 cmt_ 前缀)
+#     注意: XAU 用真实黄金合约 **XAUTUSDT**(不是 XAUUSDT), 与模拟盘下单符号 XAUTSUSDT 不同层。
+#
+# 返回行格式(V3): [开盘时间ms, open, high, low, close, volume, 收盘时间ms, quoteVolume, 笔数, ...]
+#   ★与 v2 相比: 索引 6 由"成交额"变成"收盘时间", 但 o/h/l/c/v 仍在索引 1~5 → 解析逻辑不变
 # ★两条铁律(与 engine 其余部分一致):
 #   1) 时间戳统一为【秒】
 #   2) 未收盘的当根必须剔除 (只保留 ts + 周期时长 <= 当前时刻)
@@ -12,15 +19,15 @@ import time
 import requests
 
 HOST = "https://api-contract.weex.com"
-# 我方品种 → WEEX 合约 symbol (XAU 用真实黄金合约 cmt_xautusdt, 不再用 PAXG 代理)
-SYMBOLS = {"BTC-USDT-SWAP": "cmt_btcusdt", "XAU-USDT-SWAP": "cmt_xautusdt"}
+# 我方品种 → WEEX v3 合约 symbol
+SYMBOLS = {"BTC-USDT-SWAP": "BTCUSDT", "XAU-USDT-SWAP": "XAUTUSDT"}
 GRAN = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
         "1H": "1h", "1h": "1h", "4H": "4h", "4h": "4h", "1D": "1d", "1d": "1d"}
 TFSEC = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400}
 
 
 def sym_of(inst_id):
-    return SYMBOLS.get(inst_id) or ("cmt_" + inst_id.split("-")[0].lower() + "usdt")
+    return SYMBOLS.get(inst_id) or (inst_id.split("-")[0].upper() + "USDT")
 
 
 def gran_of(tf):
@@ -70,8 +77,8 @@ def _to_store(rows, tf, now=None):
 def get_candles(inst_id, tf, limit=400, now=None):
     """实盘用: 最近 limit 根【已收盘】K线, 升序元组 [(ts, o,h,l,c,v), ...]"""
     limit = max(1, min(int(limit), 1000))
-    rows = _get("/capi/v2/market/candles",
-                {"symbol": sym_of(inst_id), "granularity": gran_of(tf), "limit": limit})
+    rows = _get("/capi/v3/market/klines",
+                {"symbol": sym_of(inst_id), "interval": gran_of(tf), "limit": limit})
     st = _to_store(rows, tf, now)
     ks = sorted(st)[-limit:]
     return [(k, *st[k]) for k in ks]
@@ -79,12 +86,11 @@ def get_candles(inst_id, tf, limit=400, now=None):
 
 def get_range(inst_id, tf, start_ts, end_ts):
     """回测/镜像用: [start_ts, end_ts] 内已收盘K线(升序)。
-    先取最近 1000 根; 更早的部分用 historyCandles 的【startTime+endTime 时间窗】向前分页(每页≤100根)。
-    ★实测: 单给 endTime 无效, 必须同时给 startTime。"""
+    先取最近 1000 根; 更早的部分用 historyKlines 的【startTime+endTime 时间窗】向前分页(每页≤100根)。"""
     dur = tfsec_of(tf)
     st = {}
-    rows = _get("/capi/v2/market/candles",
-                {"symbol": sym_of(inst_id), "granularity": gran_of(tf), "limit": 1000})
+    rows = _get("/capi/v3/market/klines",
+                {"symbol": sym_of(inst_id), "interval": gran_of(tf), "limit": 1000})
     st.update(_to_store(rows, tf, end_ts))
     have_min = min(st) if st else int(end_ts)
     cur_end = int(end_ts)
@@ -93,8 +99,8 @@ def get_range(inst_id, tf, start_ts, end_ts):
             break
         win_start = max(int(start_ts), cur_end - 100 * dur)
         try:
-            rows = _get("/capi/v2/market/historyCandles",
-                        {"symbol": sym_of(inst_id), "granularity": gran_of(tf), "limit": 100,
+            rows = _get("/capi/v3/market/historyKlines",
+                        {"symbol": sym_of(inst_id), "interval": gran_of(tf), "limit": 100,
                          "startTime": win_start * 1000, "endTime": cur_end * 1000})
         except Exception as e:
             print(f"[WEEX] 历史分页停止: {type(e).__name__} {e}")
@@ -113,6 +119,6 @@ def get_range(inst_id, tf, start_ts, end_ts):
 
 def ticker(inst_id):
     """最新价(便捷)"""
-    r = _get("/capi/v2/market/ticker", {"symbol": sym_of(inst_id)})
+    r = _get("/capi/v3/market/ticker/24hr", {"symbol": sym_of(inst_id)})
     d = r[0] if isinstance(r, list) and r else r
-    return float((d or {}).get("last") or (d or {}).get("close") or 0)
+    return float((d or {}).get("lastPrice") or (d or {}).get("last") or (d or {}).get("close") or 0)
