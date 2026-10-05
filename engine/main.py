@@ -242,6 +242,43 @@ def build_daily_report(state, now_bj):
     L += ["", f"_{C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_"]
     return "\n".join(L)
 
+def _save_and_sync_daily(report_text, now_bj):
+    """★2026-10-05 (用户裁定 P3-11): 运行日报归档
+      ① 落盘 engine/reports/运行日报_YYYYMMDD.md  (由 watch.yml 随 state.json 一起提交 → 长期可追溯)
+      ② 若环境配置了 IMA_OPENAPI_* 凭据 → best-effort 上传到 知识库 wind/05-运行日报
+         失败只打印, 绝不影响交易主流程"""
+    _day = now_bj.strftime("%Y%m%d")
+    _fname = f"运行日报_{_day}.md"
+    _root = os.path.dirname(BASE)                       # 仓库根目录
+    _dir = os.path.join(BASE, "reports")
+    try:
+        os.makedirs(_dir, exist_ok=True)
+        _fp = os.path.join(_dir, _fname)
+        with open(_fp, "w", encoding="utf-8") as f:
+            f.write(report_text)
+        print(f"[日报] 已写入 {_fp}")
+    except Exception as e:
+        print(f"[日报] 落盘失败 {type(e).__name__} {e}")
+        return
+    if not os.environ.get("IMA_OPENAPI_CLIENTID"):
+        print("[日报] 未配置 IMA 凭据 → 跳过知识库同步")
+        return
+    _up = os.path.join(_root, "tools", "ima_kb_upload.py")
+    if not os.path.exists(_up):
+        print("[日报] 未找到 tools/ima_kb_upload.py → 跳过知识库同步")
+        return
+    try:
+        import subprocess
+        _r = subprocess.run([sys.executable, _up, "--file-path", _fp,
+                             "--knowledge-base-id", C.KB_WIND_ID,
+                             "--folder-id", C.KB_DAILY_FOLDER, "--rename", _fname],
+                            capture_output=True, text=True, timeout=180)
+        print(f"[日报] 知识库同步 rc={_r.returncode} out={(_r.stdout or '').strip()[:160]} "
+              f"err={(_r.stderr or '').strip()[:160]}")
+    except Exception as e:
+        print(f"[日报] 知识库同步异常 {type(e).__name__} {e}")
+
+
 def save_state(s):
     """保存前先备份旧状态(错误自愈)"""
     try:
@@ -477,6 +514,52 @@ def _cancel_exchange_tpsl(client, inst_id, p):
             except Exception as e:
                 print(f"[撤单异常] {k} {e}")
             p[k] = None
+
+def _engine_side_exit_guard(client, p, ltf_candles):
+    """★2026-10-05 (用户裁定 P0): 引擎侧兜底出场 —— 【完全不依赖交易所条件单】。
+    背景: WEEX 模拟盘的条件单(止盈止损)会在几分钟内自行消失 → 交易所端保护不可依赖,
+          改由引擎每轮巡检执行。命中即返回平仓依据 (原因文本, 参考价)。
+    巡检顺序:
+      ① 最新一根【已收盘 15m K线】触及 止损/止盈价 (比等 1H 收盘更及时)
+      ② 交易所【真实浮盈 upl】≥ C.TP_USD → 市价止盈 (交易所真值, 不受"条件单消失"影响)
+    注意: 止损仍为【结构止损】(p["sl"], 由保本/移动止损动态上移)。"""
+    bar = None
+    try:
+        if ltf_candles:
+            bar = ltf_candles[-1]
+    except Exception:
+        bar = None
+    _long = (p["direction"] == "long")
+    # ① 15m 已收盘K线触价
+    if bar is not None:
+        try:
+            if _long:
+                if bar.low <= p["sl"]:
+                    return (f"止损触发(引擎侧·15m) @{p['sl']:.1f}", p["sl"])
+                if bar.high >= p["tp"]:
+                    return (f"止盈触发(引擎侧·15m) @{p['tp']:.1f}", p["tp"])
+            else:
+                if bar.high >= p["sl"]:
+                    return (f"止损触发(引擎侧·15m) @{p['sl']:.1f}", p["sl"])
+                if bar.low <= p["tp"]:
+                    return (f"止盈触发(引擎侧·15m) @{p['tp']:.1f}", p["tp"])
+        except Exception:
+            pass
+    # ② 交易所真实浮盈(独立于条件单是否还在)
+    try:
+        rows = (client.get_positions(inst_id=p["inst"]).get("data") or [])
+        row = (next((x for x in rows if (x.get("posSide") or "").lower() == p["direction"]), None)
+               or (rows[0] if rows else None))
+        if row is not None:
+            _upl = float(row.get("upl") or 0)
+            print(f"[引擎侧止盈巡检] {p['inst']} upl={_upl:.2f}U (目标 {float(C.TP_USD):.0f}U)")
+            if _upl >= float(C.TP_USD):
+                _px = getattr(bar, "close", None) or p["entry"]
+                return (f"浮盈 {_upl:.2f}U ≥ {float(C.TP_USD):.0f}U → 市价止盈(交易所真值)", _px)
+    except Exception as e:
+        print(f"[引擎侧止盈巡检] {p['inst']} 查持仓失败 {type(e).__name__}")
+    return None
+
 
 def _close_position_now(client, state, p, sym_cfg, reason):
     """撤交易所止盈止损 → 市价平仓 → 以交易所真实成交价结算 → 从state移除; 返回推送文本"""
@@ -1028,9 +1111,27 @@ def run_once():
                                         p[_k] = _v
                                 except Exception:
                                     pass
-                        # ★2026-10-05: 本轮只做【读回自检 + 告警】, 【不自动补挂】。
-                        #   原因(实测): 经 /capi/v3/algoOrder 补挂的条件单会在几分钟内自行消失
-                        #   → 每轮都会判定"缺失"并重复挂单(实测一轮挂 4 张)。待查清消失原因再放开。
+                        # ★2026-10-05 (用户裁定 P3-10): 恢复【自愈补挂】, 但加"至少间隔 30 分钟"的节流。
+                        #   背景: 该模拟盘条件单会自行消失(实测几分钟~几十分钟), 补挂只是"尽力而为"的
+                        #   交易所侧兜底; 【真正可靠的保护是引擎侧 _engine_side_exit_guard 巡检】。
+                        #   节流目的: 避免每轮都判定"缺失"而重复挂单(实测曾一轮挂 4 张)。
+                        _nowts = time.time()
+                        _can_try = (_nowts - float(p.get("tpsl_try_ts") or 0)) >= 1800
+                        if _cur is not None and _can_try and (not _cur.get("tp") or not _cur.get("sl")):
+                            p["tpsl_try_ts"] = _nowts
+                            _psh2 = "long" if p["direction"] == "long" else "short"
+                            _rr = _place_exchange_tpsl(client, inst_id, _psh2, p["size"],
+                                                       sym_cfg.get("td_mode", "isolated"), p["tp"], p["sl"])
+                            if _rr.get("tp_algo_id"):
+                                p["tp_algo_id"] = _rr["tp_algo_id"]
+                            if _rr.get("sl_algo_id"):
+                                p["sl_algo_id"] = _rr["sl_algo_id"]
+                            print(f"[自愈补挂] {inst_id} tp={_rr.get('tp_algo_id')} sl={_rr.get('sl_algo_id')} err={_rr.get('err')}")
+                            # 补挂后重读交易所真实状态, 用它决定是否告警(不猜)
+                            try:
+                                _cur = client.tp_sl_open(inst_id, _psh2) or _cur
+                            except Exception:
+                                pass
                         if _cur is not None:
                             if not _cur.get("tp"):
                                 _failed.append("止盈(交易所端无TP条件单)")
@@ -1052,6 +1153,12 @@ def run_once():
                     pos.tp1_hit = p.get("tp1_hit", False)
                     xe = ExitEngine()
                     acts = xe.manage(pos, candles, se, le)
+                    # ★2026-10-05 (用户裁定 P0): 引擎侧兜底出场优先 —— 交易所条件单不可靠, 由引擎每轮巡检
+                    if not DRY_RUN:
+                        _g = _engine_side_exit_guard(client, p, ltf_candles)
+                        if _g:
+                            print(f"[引擎侧兜底出场] {inst_id} {_g[0]}")
+                            acts = [("EXIT", _g[0], _g[1])]
                     exited = False
                     _ps = "long" if p["direction"] == "long" else "short"
                     for act in acts:
@@ -1147,7 +1254,9 @@ def run_once():
     if os.environ.get("FORCE_DAILY") == "1":        # ★测试钩子: 强制推一次日报(不改状态)
         push(build_daily_report(state, now_bj))
     elif now_bj.hour >= 8 and state.get("daily_report_date") != today:
-        push(build_daily_report(state, now_bj))
+        _rep = build_daily_report(state, now_bj)
+        push(_rep)
+        _save_and_sync_daily(_rep, now_bj)      # ★P3-11: 落盘仓库 + best-effort 同步知识库
         state["daily_report_date"] = today
 
     # ---- 推送策略: 有实质内容才推; 无内容静默 ----
