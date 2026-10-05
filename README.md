@@ -1,59 +1,47 @@
 # 🌙 暗夜猎手 NightHunter
 
-> 森林查尔斯 SMC 交易课程规则实现的自动盯盘+模拟盘交易引擎
+> 森林查尔斯 SMC 价格行为课程的规则实现 —— 自动盯盘 + **WEEX 模拟盘**交易引擎
 
-> 目标：把 B 站《森林查尔斯》交易课程的规则体系，实现为监控 XAU + BTC 的自动盯盘 + OKX 模拟盘交易引擎
-> 立项：2026-09-28 | 数据源：OKX（正式运行）/ Gate.io（本地测试）
+- **策略**：1H 定方向 → 15m 回踩 FVG → Internal 结构确认（逆势 CHoCH → 顺势 BOS）
+- **品种**：BTC / XAU（黄金）
+- **数据源**：信号与回测 = **WEEX 合约**；交易 = **WEEX 模拟盘**（历史曾用 OKX，已于 2026-10-04 整体切换）
+- **运行**：GitHub Actions（`watch.yml`，由 cron-job.org 每 15 分钟触发）
 
 ## 目录结构
 
 ```
 trading_agent/
-├── README.md              本文件（项目索引）
-├── engine/               ★ 正式引擎代码（以后只维护这里）
-│   ├── config.py         配置中心（10个待标定阈值集中管理）
-│   ├── structure.py      结构引擎（BOS实体确认/CHoCH/盘整屏蔽/影线vs实体）
-│   ├── liquidity.py      流动性模块（FVG/回踩/iFVG翻转/IFVG牛熊转换/双点截取）
-│   └── test_engines.py   引擎验证脚本（Gate.io真实数据）
-├── transcripts/          课程资产
-│   ├── 规则库_森林查尔斯课程.md   ★★ 270条规则总纲（一切开发的依据）
-│   ├── bv_list.json      22集视频清单
-│   └── <BV号>/transcript.txt   22份带时间戳文字稿（24.8万字）
-├── tools/                工具脚本
-│   ├── bilibili_transcribe.py  B站单视频转录管线
-│   ├── transcribe_all.py       目录级批量转写
-│   ├── batch_pipeline.py       全合集后台流水线（即转即删）
-│   ├── run_ep1.py              指定段补转
-│   └── upload_batch.py         项目资产批量上传知识库
-├── model/                ASR模型（paraformer int8 233MB，勿删）
-└── legacy/               旧版资料（v1演示引擎/部署手册/数据源测试）
+├── engine/                ★ 引擎代码
+│   ├── config.py          配置中心（口径单一事实来源）
+│   ├── structure.py       结构引擎（开源库 smartmoneyconcepts + 分层 swing + CHoCH只预警）
+│   ├── liquidity.py       流动性/FVG（开源库 fvg + 截取检测）
+│   ├── entry.py           入场模板（1H方向 → 15m回踩FVG → Internal 确认）
+│   ├── exits.py           出场管理（保本 / 移动止损 / 浮盈按币数量计）
+│   ├── risk.py            风控门
+│   ├── weex_client.py     WEEX 合约行情（信号/回测数据源）
+│   ├── weex_trade.py      WEEX 模拟盘客户端（签名/下单内联TP-SL/条件单）
+│   ├── weex_broker.py     WEEX 适配层
+│   ├── main.py            主循环（引擎侧兜底出场 + 交易 + 推送 + 日报）
+│   ├── reports/           运行日报归档（engine/reports/运行日报_YYYYMMDD.md）
+│   └── state.json         运行状态（由 Actions 每轮提交持久化）
+├── tools/                 工具脚本（回测 / 频率扫描 / 诊断 / 知识库同步）
+├── deploy/                文档源文件（说明书、代码合集、部署手册）
+└── .github/workflows/     watch.yml（主引擎）/ mirror_weex.yml（API不可达时的K线镜像）
 ```
 
-## 项目进度
+## 关键设计
 
-- [x] 课程22集→文字稿（24.8万字，Paraformer本地转写）
-- [x] 规则提取（270条：可代码化~140/待标定~60/不可~70）
-- [x] 资产上传知识库"wind"（25个文件，防丢失）
-- [x] Step1 核心引擎：结构+流动性（已用真实K线验证）
-- [ ] Step2 入场模板 + 出场管理
-- [ ] Step3 风控层 + 滚仓仓位
-- [ ] Step4 OKX客户端 + 主循环
-- [ ] Step5 本地逻辑验证
-- [ ] Step6 部署（GitHub Actions）上线
+1. **只用课程体系**：结构 / 流动性 / FVG —— **不引入任何传统指标**（均线、MACD、布林带等）
+2. **持仓保护不依赖交易所条件单**：该模拟盘条件单会自行消失 → 由引擎每轮巡检（15m 触价 + 交易所真实浮盈 ≥10U）市价平仓
+3. **状态持久化**：`engine/state.json` 每轮 git commit；**严禁**为它配置 `actions/cache`（会复活陈旧的持仓状态）
+4. **无未来函数**：实盘入口剔除未收盘 K 线；swing/BOS 判定带 `SMC_STRICT_CAUSAL` 守卫
 
-## 关键决策记录
+## 文档（知识库 wind）
 
-1. **课程体系=SMC价格行为流**，不使用传统指标（老师：MACD/布林带"基本是废的"）→ v1演示信号库（RSI/MACD/EMA7-25）已作废
-2. **监控品种**：BTC 跑全套模块；XAU 只跑结构+流动性（无永续/无逐笔数据）
-3. **10个量化阈值**课程未给 → 先用默认值，模拟盘跑数据后回标
-4. **部署路径**：代码在 GitHub Actions 云端跑（海外节点可访问OKX）；Webhook/API密钥存 GitHub Secrets
-5. **本地测试用 Gate.io**（沙盒可达），正式跑用 OKX（沙盒不可达，AWS/GCP节点可）
-
-## 常用命令
-
-```bash
-# 引擎验证（拉真实行情跑结构识别）
-cd trading_agent/engine && python3 test_engines.py
-# 新视频转录
-cd trading_agent/tools && python3 bilibili_transcribe.py <BV链接>
-```
+| 文档 | 位置 |
+|---|---|
+| 信号逻辑说明书（规则总纲） | `02-规则库与提取结论` |
+| 课程规则库（校准稿 v2） | `02-规则库与提取结论` |
+| 代码合集（最新） | `03-代码与部署` |
+| 部署手册（WEEX 版） | `03-代码与部署` |
+| 运行日报 | `05-运行日报` |
