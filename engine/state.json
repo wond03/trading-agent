@@ -1,15 +1,15 @@
 {
  "positions": [],
  "daily": {
-  "date": "2026-10-05",
-  "trades": 8,
+  "date": "2026-10-06",
+  "trades": 0,
   "by_profile": {
-   "1-15": 8
+   "1-15": 0
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791215151.675276,
- "run_count_today": 110,
+ "last_run_ts": 1791216071.4090652,
+ "run_count_today": 1,
  "history": [
   {
    "type": "signal",
@@ -399,8 +399,8 @@
  ],
  "daily_report_date": "2026-10-05",
  "market_snapshot": [
-  "· **BTC** 上涨 | FVG 85,322~85,354 | 扫上85,619(1点)",
-  "· **黄金** 下跌 | FVG 4,147~4,151 | 扫上4,142(3点)"
+  "· **BTC** 上涨 | FVG 85,630~85,764 | 扫上85,619(1点)",
+  "· **黄金** 下跌 | FVG 4,147~4,151 | 扫下4,128(6点)"
  ],
  "pushed_watch": [],
  "fail_streak": 0,
