@@ -95,6 +95,7 @@ class StructureEngine:
     def __init__(self):
         self.swings = []
         self.trend = None
+        self.trend_warn = None      # ★2026-10-05: CHoCH 只看作预警(等反向 BOS 确认) → 记在这里
         self.events = []
         self.last_swing_high = None
         self.last_swing_low = None
@@ -144,9 +145,25 @@ class StructureEngine:
             sgn = 1 if float(B[i] if not pd.isna(B[i]) else H[i]) > 0 else -1
             ev.append((bi, f"{kind}_{'up' if sgn > 0 else 'down'}", float(L[i])))
         self.events = sorted(ev, key=lambda x: x[0])
+        # ★★2026-10-05 按用户笔记《BOS和CHOCH概念》修正趋势判定:
+        #   笔记: "CHoCH 只是预警, 不一定马上反转, 最好等后续 BOS 确认新趋势"
+        #   → 趋势 = 最近一个【BOS】的方向; CHoCH 不翻转趋势, 只记入 trend_warn(预警)。
+        #   开关 C.CHOCH_IS_WARNING_ONLY=True(新口径) / False(旧口径: 最后一个事件即翻转)
         self.trend = None
-        for (_b, nm, _lv) in self.events:
-            self.trend = "up" if nm.endswith("up") else "down"
+        self.trend_warn = None
+        if getattr(C, "CHOCH_IS_WARNING_ONLY", True):
+            _bi, _bd, _ci, _cd = -1, None, -1, None
+            for (_b, nm, _lv) in self.events:
+                if nm.startswith("BOS"):
+                    _bi, _bd = _b, ("up" if nm.endswith("up") else "down")
+                else:
+                    _ci, _cd = _b, ("up" if nm.endswith("up") else "down")
+            self.trend = _bd
+            if _ci > _bi and _cd != _bd:
+                self.trend_warn = _cd          # 有未确认的反转预警
+        else:
+            for (_b, nm, _lv) in self.events:
+                self.trend = "up" if nm.endswith("up") else "down"
 
         # 最近【已确认】swing(第 s 根之后才确认, 末 s 根不作数)
         lim = n - 1 - s
@@ -169,6 +186,7 @@ class StructureEngine:
         ls = [x for x in self.swings if x[1] == "L"][-2:]
         return {
             "trend": self.trend,
+            "trend_warn": self.trend_warn,
             "in_consolidation": self.in_consolidation,
             "recent_swings_high": hs,
             "recent_swings_low": ls,
