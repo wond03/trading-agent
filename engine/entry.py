@@ -189,6 +189,14 @@ class EntryEngine:
             _rz = (f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} "
                    f"(TP={_src}, RR1:{rr:.1f})")
             steps["tp_src"] = _src
+        elif _tpm == "pct":
+            # ★2026-10-06 用户裁定: 固定价格百分比(实测 90 天最优档)
+            _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
+            tp = (px * (1 - _pp)) if htf_trend == "down" else (px * (1 + _pp))
+            rr = abs(tp - px) / max(abs(px - sl), 1e-9)
+            _rz = (f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} "
+                   f"(固定{_pp * 100:.1f}%, RR1:{rr:.1f})")
+            steps["tp_src"] = "pct"
         elif _tpm == "usd":
             _notional = float(C.WEEX_MARGIN_USD) * float(C.LEVERAGE_FIXED)
             _dist = float(C.TP_USD) * px / max(_notional, 1e-9)
