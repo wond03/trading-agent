@@ -129,3 +129,9 @@ RR_MIN_GROWTH = 2.0           # 止盈固定 1:2 (规则E12)
 
 # ---------- 告警 ----------
 WECOM_WEBHOOK_ENV = "WECOM_WEBHOOK"
+
+# ---------- ★2026-10-05 (用户裁定 P3-11): 运行日报归档 ----------
+#   日报文本落盘到 engine/reports/运行日报_YYYYMMDD.md(由 watch.yml 提交, 长期归档),
+#   并在配置了 IMA_OPENAPI_* 凭据时, best-effort 同步到 知识库 wind / 05-运行日报。
+KB_WIND_ID = "w_SEcqwVLdF6JKMFKUq73j75ULEcOcqGUfsLQC_35f4="   # 知识库 wind
+KB_DAILY_FOLDER = "folder_7510739656931312"                   # wind/05-运行日报
