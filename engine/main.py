@@ -465,9 +465,14 @@ def tp_from_usd(entry_px, direction, size_coin=None, usd=None):
     return entry_px + dist if direction == "long" else entry_px - dist
 
 
-def tp_target(entry_px, direction, sl_px, size_coin=None):
-    """按 C.TP_MODE 选止盈口径: "usd"=固定浮盈金额(默认) ; "rr"=固定盈亏比"""
-    if str(getattr(C, "TP_MODE", "rr")).lower() == "usd":
+def tp_target(entry_px, direction, sl_px, size_coin=None, liq_px=None):
+    """按 C.TP_MODE 选止盈口径:
+       "liq" = 前方流动性目标(由 entry.py 按 1H 摆动点算好, 经 liq_px 传入); 取不到 → 退回固定盈亏比
+       "usd" = 固定浮盈金额 ; "rr" = 固定盈亏比"""
+    _m = str(getattr(C, "TP_MODE", "rr")).lower()
+    if _m in ("liq", "liq2r"):
+        return float(liq_px) if liq_px else tp_from_rr(entry_px, direction, sl_px)
+    if _m == "usd":
         return tp_from_usd(entry_px, direction, size_coin=size_coin)
     return tp_from_rr(entry_px, direction, sl_px)
 
@@ -711,7 +716,8 @@ def run_once():
                                    pe.get("signal_entry", _avg), pe["lev"])[0]
                 _psx = "long" if pe["direction"] == "long" else "short"
                 _tdx = C.SYMBOLS.get(_pinst, {}).get("td_mode", "isolated")
-                _tpf = tp_target(_avg, pe["direction"], _slf, size_coin=_fl)   # 止盈按 C.TP_MODE(默认=浮盈TP_USD美元)重算
+                _tpf = tp_target(_avg, pe["direction"], _slf, size_coin=_fl,
+                                 liq_px=pe.get("tp"))     # "liq"口径沿用挂单时算好的目标; 其余按 C.TP_MODE 重算
                 _po = {"inst": _pinst, "direction": pe["direction"], "entry": _avg, "sl": _slf, "tp": _tpf,
                        "size": _fl, "ratio": 1.0, "risk_free": False, "tp1_hit": False,
                        "leverage": pe["lev"], "profile": pe.get("profile", "4H+1H"),
@@ -976,7 +982,10 @@ def run_once():
                               f"保证金{size['margin']}U (杠杆{used_lev}x, 来源={size.get('margin_src')})")
                         sl_use, liq_px = adaptive_sl(sig.entry, sig.direction, sig.sl, sig.entry, used_lev)
                         # ★2026-10-05: 用【本单真实数量】把止盈换算成"浮盈 TP_USD 美元"的价位(口径见 C.TP_MODE)
-                        sig.tp = tp_target(sig.entry, sig.direction, sl_use, size_coin=size["lots"])
+                        # ★2026-10-06: "liq"(前方流动性) 口径已在 entry.py 按 1H 摆动点算好 →
+                        #   这里【不覆盖】; 只有 "usd"/"rr" 需要按【真实成交数量】重算才覆盖
+                        if str(getattr(C, "TP_MODE", "rr")).lower() not in ("liq", "liq2r"):
+                            sig.tp = tp_target(sig.entry, sig.direction, sl_use, size_coin=size["lots"])
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
                         _opened = False
                         if not DRY_RUN:
