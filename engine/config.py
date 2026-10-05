@@ -21,7 +21,8 @@ BASE_TF = "1H"        # 主分析周期(profile 会覆盖)
 HTF = "1H"            # 背景级别(定趋势、找截取)
 STRATEGY_PROFILES = {
     "1-15": {"label": "1-15", "base_tf": "1H", "htf": "1H", "ltf": "15m",
-             "swing_left": 4, "swing_right": 4},      # ★2026-10-04: 2 → 4 (与 SWING_LEFT/RIGHT 对齐)
+             "swing_left": 4, "swing_right": 4,          # ★2026-10-04: 2 → 4 (与 SWING_LEFT/RIGHT 对齐)
+             "swing_htf": 10, "swing_ltf": 4},           # ★2026-10-05: 分层(笔记建议 高周期10~15/低周期2~5); 实测 10 最优
 }
 
 # ---------- 仓位模式(用户指定): 固定保证金 × 固定杠杆 ----------
@@ -60,6 +61,14 @@ SWING_RIGHT = 4       # [工] swing 极值确认窗口(右)
                       #   敏感度(90天): s=2 → 353笔/−59.6U; s=4 → 见回测报告; s=5 → 164笔/+47.5U;
                       #                 s=10 → 92笔/+40.0U; s=20 → 39笔/+129.2U(样本少); s=50 → 6笔。
                       #   注: 运行期会被 STRATEGY_PROFILES[*].swing_left/right 覆盖, 两处必须一致。
+# ★2026-10-05 按笔记《BOS和CHOCH概念》分层: 高周期用大 swing 定【Swing 方向】, 低周期用小 swing 做【Internal 结构】。
+#   笔记建议: 高时间框架 Swing Length 10~15 ; 低时间框架(15m/5m) 2~5。
+#   (运行期会被 STRATEGY_PROFILES[*].swing_htf/swing_ltf 覆盖, 两处必须一致)
+SWING_LEN_HTF = 10    # 1H(背景/定方向) 的 swing_length
+                      # ★2026-10-05 90天实测选档(其余口径: 内部确认门k=4 + 止盈浮盈10U):
+                      #   1H=4(旧) 127笔/净-26.09U → 1H=10 【99笔/净+40.88U/每笔+0.413/胜率18.2%】(最优,首次转正)
+                      #   → 1H=12 105笔/+33.75U ; 1H=15 102笔/+1.28U ; 15m=2 211笔/-64.91U(太细=噪声)
+SWING_LEN_LTF = 4     # 15m(入场/Internal) 的 swing_length
 SMC_STRICT_CAUSAL = True   # [工] 无未来函数守卫: break 必须发生在 swing 确认(pivot+S)之后
                            #   (开源库原版允许 break 早于 swing 确认 = 回测偷看未来; True=修掉)
 # ★2026-10-05 按用户笔记《BOS和CHOCH概念》修正: CHoCH 只是【反转预警】, 不立即翻转趋势。
