@@ -40,7 +40,7 @@ def replay(inst, bars1h, bars4h, bars15, i0):
     """逐根回放 [i0, len) 的 1H 序列; 返回 (trades, sig_count, samples)"""
     ts4 = [c.ts for c in bars4h]
     ts15 = [c.ts for c in bars15]
-    se = StructureEngine()            # 1H: 增量复用(engine 为增量状态机, 与逐根重建等价)
+    se = StructureEngine(getattr(C, "SWING_LEN_HTF", None))   # 1H(Swing层): 增量复用
     ee = EntryEngine()
     xe = ExitEngine()
     positions = []                    # {pos, inst, lots, ctVal, entry, notional, open_i, open_ts}
@@ -85,7 +85,7 @@ def replay(inst, bars1h, bars4h, bars15, i0):
             sub4 = bars4h[max(0, jh - 200):jh]
             if len(sub4) < 60:
                 continue
-            s4 = StructureEngine(); s4.process(sub4)
+            s4 = StructureEngine(getattr(C, "SWING_LEN_HTF", None)); s4.process(sub4)
             htf = s4.trend
         if htf not in ("up", "down"):
             continue
@@ -94,7 +94,7 @@ def replay(inst, bars1h, bars4h, bars15, i0):
         sub15 = bars15[max(0, j - 200):j]
         if len(sub15) < 60:
             continue
-        lse = StructureEngine(); lse.process(sub15); lse.last_idx = len(sub15) - 1
+        lse = StructureEngine(getattr(C, "SWING_LEN_LTF", None)); lse.process(sub15); lse.last_idx = len(sub15) - 1
         lle = LiquidityEngine(); lle.process(sub15)
 
         # ② 入场
