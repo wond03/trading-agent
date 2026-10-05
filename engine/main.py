@@ -923,6 +923,7 @@ def run_once():
 
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
+                ee.inst = inst_id       # ★2026-10-06: 分品种参数(扫荡最小刺破幅度)
                 sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le, ltf_candles=ltf_candles)
                 if sig is None:
                     print(f"[无信号] {inst_id} {plabel} → {why_no_signal(ee)}")
@@ -942,14 +943,16 @@ def run_once():
                     if fp in state["pushed_fp"]:
                         print(f"[跳过重复信号] {fp}")
                         sig = None
-                # 同品种「同方向」只留一仓(用户规则): 已有同向仓/挂单 → 直接忽略新信号, 不换仓; 不同方向可并存
-                _same = next((p for p in state.get("positions", [])
-                              if p["inst"] == inst_id and p["direction"] == sig.direction), None) if sig else None
-                _same_pend = any(pe.get("inst") == inst_id and pe.get("direction") == sig.direction
-                                 for pe in state.get("pending_entries", [])) if sig else False
-                if sig and (_same_pend or _same):
-                    # 同品种同向只留一仓: 已有同向仓/挂单 → 忽略新信号(不再分等级, 故不换仓)
-                    print(f"[跳过] {plabel} {inst_id} 已有同向仓/挂单, 不重复开仓")
+                # ★★2026-10-06 用户裁定「同品种禁止多空都开仓」:
+                #   同品种同一时间只允许【一个方向】的仓位 —— 已有任一方向的持仓/挂单 → 忽略新信号(不做反手)。
+                #   (旧口径: 只拦同向, "反向可并存" → 会出现同品种多空双开/对冲, 双倍保证金+双倍手续费)
+                _busy = next((p for p in state.get("positions", []) if p["inst"] == inst_id), None) if sig else None
+                _busy_pend = next((pe for pe in state.get("pending_entries", []) if pe.get("inst") == inst_id),
+                                  None) if sig else None
+                if sig and (_busy_pend or _busy):
+                    _dir_txt = ("反向" if _busy and _busy.get("direction") != sig.direction
+                                else ("同向" if _busy else "挂单"))
+                    print(f"[跳过] {plabel} {inst_id} 已有{_dir_txt}仓/挂单 → 同品种只留一个方向, 忽略新信号")
                     sig = None
 
                 if sig:
