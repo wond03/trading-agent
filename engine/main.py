@@ -23,7 +23,7 @@ PROFILES = getattr(C, "STRATEGY_PROFILES", {
     "4-1-15": {"label": "4-1-15", "base_tf": C.BASE_TF, "htf": "4H",
                "swing_left": 4, "swing_right": 4}})
 # 引擎模块运行时读取 config 全局, 故按方案临时切换这组参数
-_PROFILE_KEYS = ("BASE_TF", "SWING_LEFT", "SWING_RIGHT")
+_PROFILE_KEYS = ("BASE_TF", "SWING_LEFT", "SWING_RIGHT", "SWING_LEN_HTF", "SWING_LEN_LTF")
 
 @contextlib.contextmanager
 def profile_ctx(prof):
@@ -31,6 +31,8 @@ def profile_ctx(prof):
     C.BASE_TF = prof["base_tf"]
     C.SWING_LEFT = prof.get("swing_left", 2)
     C.SWING_RIGHT = prof.get("swing_right", 2)
+    C.SWING_LEN_HTF = prof.get("swing_htf", getattr(C, "SWING_LEN_HTF", 12))   # ★2026-10-05 分层
+    C.SWING_LEN_LTF = prof.get("swing_ltf", getattr(C, "SWING_LEN_LTF", 4))
     try:
         yield
     finally:
@@ -82,9 +84,9 @@ def push_chart(client, inst_id, lines, title=""):
         b_ltf = fetch_candles(client, inst_id, limit=400, tf="15m")
         if len(b_main) < 20 or len(b_ltf) < 20:
             print(f"[图表] {inst_id} K线不足, 跳过"); return
-        s_m = StructureEngine(); s_m.process(b_main)
+        s_m = StructureEngine(getattr(C, "SWING_LEN_HTF", None)); s_m.process(b_main)
         l_m = LiquidityEngine(); l_m.process(b_main)
-        s_l = StructureEngine(); s_l.process(b_ltf)
+        s_l = StructureEngine(getattr(C, "SWING_LEN_LTF", None)); s_l.process(b_ltf)
         l_l = LiquidityEngine(); l_l.process(b_ltf)
         out = os.path.join(BASE, f"chart_{inst_id.replace('-', '_')}.png")
         p = signal_chart.render(inst_id, b_main, b_ltf, s_m, l_m, s_l, l_l, lines, out,
@@ -299,7 +301,7 @@ def get_htf_trend(client, inst_id, candles_base, htf="4H"):
     try:
         c = fetch_candles(client, inst_id, limit=200, tf=htf)
         if len(c) >= 60:
-            _se = StructureEngine(); _se.process(c)
+            _se = StructureEngine(getattr(C, "SWING_LEN_HTF", None)); _se.process(c)
             if _se.trend in ("up", "down"):
                 return _se.trend, htf
             print(f"[HTF] {htf} 结构方向未确立 → 本轮不做")
@@ -801,7 +803,7 @@ def run_once():
                     add("巡检", f"❌ `{plabel}` {inst_id} 行情失败: {e}"); continue
                 if len(candles) < 120:
                     continue
-                se, le = StructureEngine(), LiquidityEngine()
+                se, le = StructureEngine(getattr(C, "SWING_LEN_HTF", None)), LiquidityEngine()
                 se.process(candles); le.process(candles)
                 htf, htf_src = get_htf_trend(client, inst_id, candles, htf=prof.get("htf", "4H"))
                 # 小级别(下一级): 课程C1"截取后切小级别看反转预警/回踩" → 反转预警与FVG都在此级别判定
@@ -812,7 +814,7 @@ def run_once():
                         _lc = fetch_candles(client, inst_id, limit=200, tf=_ltf)
                         if len(_lc) >= 60:
                             ltf_candles = _lc
-                            ltf_se = StructureEngine(); ltf_se.process(_lc)
+                            ltf_se = StructureEngine(getattr(C, "SWING_LEN_LTF", None)); ltf_se.process(_lc)
                             ltf_se.last_idx = len(_lc) - 1
                             ltf_le = LiquidityEngine(); ltf_le.process(_lc)
                     except Exception as e:
