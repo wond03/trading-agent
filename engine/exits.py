@@ -15,6 +15,7 @@ class Position:
         self.lots = lots              # 实际张数(算浮盈用)
         self.risk_free = False        # 是否已上保本
         self.tp1_hit = False
+        self.risk0 = abs(entry - sl) if sl else 0.0   # ★2026-10-06: 开仓时的风险距离(算 1R 用)
         self.history = []
 
     def __repr__(self):
@@ -54,16 +55,18 @@ class ExitEngine:
 
         # ---- 规则D1-① "出量止盈": 2026-10-03 用户裁定【不做】(原文只讲"出量要吃", 没给任何可量化定义) ----
 
-        # ---- 规则D2: 浮盈达 1 倍保证金(=MARGIN_PER_TRADE, 当前5U) → 上保本 ----
-        #   2026-10-03 用户裁定: 上保本触发条件改为"浮盈≥5U", 不再用"摸前高/前低"
+        # ---- 规则D2 (★2026-10-06 用户裁定): 浮盈达【1R】→ 上保本 ----
+        #   原口径"浮盈≥5U"在 25x / 125U 名义下 = 价格要涨 4% → 近乎不触发, 已删除。
+        #   R = 开仓时的风险距离 |entry − sl0|, 与杠杆/保证金无关
+        #   (笔记《FVG》分批止盈原文: "…并把止损移至盈亏平衡点")
         if not pos.risk_free:
-            # ★WEEX(2026-10-04): pos.lots = 【币的数量】→ 浮盈 = 价差 × 数量(不再乘 OKX 的 ctVal)
             _sign = 1 if pos.direction == "long" else -1
-            _pnl = (bar.close - pos.entry) * _sign * (pos.lots or 0)
-            if _pnl >= C.MARGIN_PER_TRADE:
+            _risk0 = getattr(pos, "risk0", None) or abs(pos.entry - pos.sl)
+            _fav = (bar.close - pos.entry) * _sign          # 有利方向的价格位移
+            if _risk0 > 0 and _fav >= _risk0:
                 pos.sl = max(pos.sl, pos.entry) if pos.direction == "long" else min(pos.sl, pos.entry)
                 pos.risk_free = True
-                actions.append(("MOVE_SL", f"浮盈 {_pnl:.2f}U ≥ {C.MARGIN_PER_TRADE:.0f}U(1倍保证金) → 止损移到保本"))
+                actions.append(("MOVE_SL", f"浮盈 {_fav / _risk0:.2f}R ≥ 1R → 止损移到保本"))
 
         # ---- 规则D4: 突破结构位 → SL移到被突破位下方 ----
         if C.TRAIL_SL_ON_BOS:
