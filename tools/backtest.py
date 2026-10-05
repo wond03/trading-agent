@@ -42,6 +42,7 @@ def replay(inst, bars1h, bars4h, bars15, i0):
     ts15 = [c.ts for c in bars15]
     se = StructureEngine(getattr(C, "SWING_LEN_HTF", None))   # 1H(Swing层): 增量复用
     ee = EntryEngine()
+    ee.inst = inst                                          # ★2026-10-06: 分品种参数(扫荡刺破幅度)
     xe = ExitEngine()
     positions = []                    # {pos, inst, lots, ctVal, entry, notional, open_i, open_ts}
     trades = []
@@ -101,8 +102,8 @@ def replay(inst, bars1h, bars4h, bars15, i0):
         sig = ee.evaluate(candles, se, le, htf, bar_i=i, ltf_se=lse, ltf_le=lle, ltf_candles=sub15)
         if sig:
             sig_count += 1
-            same = any(pp["inst"] == inst and pp["pos"].direction == sig.direction for pp in positions)
-            if not same:                       # 同品种同向只留一仓
+            busy = any(pp["inst"] == inst for pp in positions)     # ★2026-10-06 同品种只留一个方向(禁止多空都开仓)
+            if not busy:
                 _lev = C.WEEX_LEVERAGE.get(inst, C.LEVERAGE_FIXED)   # ★2026-10-05: 与线上一致(WEEX 口径, BTC/XAU 均 100x → 名义≈500U)
                 sz = size_fixed_margin(sig.entry, inst, _lev)
                 # ★与生产一致: 止损经 adaptive_sl 收进爆仓线内(100x 下结构止损会被爆仓线覆盖)
