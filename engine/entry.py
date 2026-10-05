@@ -158,11 +158,38 @@ class EntryEngine:
             steps["geometry_bad"] = round(risk, 4)
             return None
         # ③ 止盈: 口径由 C.TP_MODE 决定
-        #   "usd"(★2026-10-05 用户裁定 "止盈按10u给") = 放在【浮盈 = TP_USD 美元】处:
-        #        价格距离 = 目标浮盈 / 持仓数量(币) ≈ TP_USD × 进场价 / 名义
-        #        名义 ≈ WEEX_MARGIN_USD × LEVERAGE_FIXED (5U × 100x = 500U) → 约 2%
-        #   "rr" = 旧的固定盈亏比
-        if str(getattr(C, "TP_MODE", "rr")).lower() == "usd":
+        #   "liq"(★2026-10-06 用户裁定, 依笔记《FVG》"止盈第一目标 = 最近的前方流动性"):
+        #        取 1H 上【前方最近的未突破摆动高点(做多)/摆动低点(做空)】; 取不到 → 退回 TP_RR
+        #   "usd"(2026-10-05 旧口径) = 固定浮盈 TP_USD 美元 (名义 ≈ WEEX_MARGIN_USD × LEVERAGE_FIXED)
+        #   "rr"  = 固定盈亏比
+        _tpm = str(getattr(C, "TP_MODE", "rr")).lower()
+        if _tpm in ("liq", "liq2r"):
+            _lv = []
+            for _s in (getattr(se, "swings", []) or []):
+                try:
+                    _kd = _s[1]
+                    _pp = float(_s[2])
+                except Exception:
+                    continue
+                if (htf_trend == "up" and _kd == "H" and _pp > px) or \
+                   (htf_trend == "down" and _kd == "L" and _pp < px):
+                    _lv.append(_pp)
+            _rrx = float(C.TP_RR)
+            _rr_tp = (px - _rrx * risk) if htf_trend == "down" else (px + _rrx * risk)
+            _cand = (min(_lv) if htf_trend == "up" else max(_lv)) if _lv else None
+            if _tpm == "liq2r":     # ★笔记"剩余仓位看向 2R 或更高的流动性目标" → 取更远的那一个
+                if _cand is None:
+                    tp, _src = _rr_tp, "fallback_rr"
+                else:
+                    tp = max(_cand, _rr_tp) if htf_trend == "up" else min(_cand, _rr_tp)
+                    _src = "liq_or_2R"
+            else:
+                tp, _src = (_cand, "liquidity") if _cand is not None else (_rr_tp, "fallback_rr")
+            rr = abs(tp - px) / max(abs(px - sl), 1e-9)
+            _rz = (f"1H{htf_trend} | 现价{px:.1f} → {trigger} | 损{sl:.1f} 标{tp:.1f} "
+                   f"(TP={_src}, RR1:{rr:.1f})")
+            steps["tp_src"] = _src
+        elif _tpm == "usd":
             _notional = float(C.WEEX_MARGIN_USD) * float(C.LEVERAGE_FIXED)
             _dist = float(C.TP_USD) * px / max(_notional, 1e-9)
             tp = (px - _dist) if htf_trend == "down" else (px + _dist)
