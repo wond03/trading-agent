@@ -65,57 +65,74 @@ class EntryEngine:
             if not _sd:
                 return None
 
-        # ③ 入场信号: 15m 回踩【顺势方向】FVG
-        #   做多取最近未回填的 bull FVG ; 做空取最近未回填的 bear FVG
-        #   触发 = 最新 15m K 线【触及】该 FVG 区间(一碰就进)
+        # ③ ★2026-10-05 按笔记《FVG》+《BOS和CHOCH概念》重构: 结构与 FVG 合成【一条因果链】
+        #   笔记《BOS和CHOCH概念》「实战配置逻辑」: Swing定方向 → Internal CHoCH(回调结束)
+        #        → Internal BOS(延续确认) → 进场触发
+        #   笔记《FVG》: ①先有 BOS/CHoCH → ②检查【产生该结构的推动浪里】有没有 FVG
+        #        (没有 = 低质量突破, 直接忽略) → ③确认结构有效后【不追高, 等回调进该 FVG】入场
+        #   ⇒ 旧版把"回踩FVG"与"结构确认"当两道独立门: 一个要求"价格此刻还在FVG里",
+        #     一个要求"刚发生BOS", 两者时点互斥 → 近乎哑火。现改为同一条链:
+        #     BOS 之后、最近 N 根内, 价格回调进【该段推动浪留下的 FVG】才进场。
+        _evs = getattr(ltf_se, "events", []) or [] if ltf_se is not None else []
+        _n = len(ltf_candles) if ltf_candles else 0
+        _k = int(getattr(C, "INT_CONFIRM_MAX_AGE_BARS", 8))
+        _N = int(getattr(C, "RETRACE_MAX_AGE_BARS", 4))
+        _up = (htf_trend == "up")
+        _same_bos = "BOS_up" if _up else "BOS_down"
+        _opp_cho = "CHoCH_down" if _up else "CHoCH_up"
+        _opp_bos = "BOS_down" if _up else "BOS_up"
+        _ch_i = next((e[0] for e in reversed(_evs) if e[1] == _opp_cho), None)
+        _bo_i = next((e[0] for e in reversed(_evs) if e[1] == _same_bos), None)
+        _bo_age = None if _bo_i is None else (_n - 1 - _bo_i)
+        # ---- 结构门 ----
+        _ok, _why = True, ""
+        if getattr(C, "INT_REQUIRE_BOS", False):
+            if _bo_i is None:
+                _ok, _why = False, "无顺势BOS"
+            elif _bo_age > _k:
+                _ok, _why = False, f"BOS已过{_bo_age}根(>{_k})"
+            elif any(x > _bo_i for x in [e[0] for e in _evs if e[1] == _opp_bos]):
+                _ok, _why = False, "BOS后出现反向BOS(结构已反转)"
+            #  注: 反向 CHoCH 不再判否 —— 笔记要求"等回调进FVG", 而回调本身就会产生反向CHoCH
+        if _ok and getattr(C, "INT_REQUIRE_CHOCH", False):
+            if _ch_i is None:
+                _ok, _why = False, "无逆势CHoCH(回调)"
+            elif _bo_i is not None and _ch_i >= _bo_i:
+                _ok, _why = False, "CHoCH晚于BOS(顺序不对)"
+        steps["internal"] = {"choch_idx": _ch_i, "bos_idx": _bo_i, "age": _bo_age, "ok": _ok, "why": _why}
+        if not _ok:
+            return None
+
+        # ---- FVG: 只认【产生该 BOS 的那段推动浪】里留下的顺势、未回填 FVG(笔记第2~3步) ----
         trigger, _fvg = None, None
-        if ltf_le is not None and ltf_candles:
-            _want = "bull" if htf_trend == "up" else "bear"
+        _cands = []
+        if ltf_le is not None and ltf_candles and _bo_i is not None:
+            _want = "bull" if _up else "bear"
+            _leg_from = _ch_i if _ch_i is not None else 0
             _cands = [f for f in getattr(ltf_le, "fvgs", [])
-                      if f.get("kind") == _want and not f.get("filled")]
-            _bar = ltf_candles[-1]
-            _hit = [f for f in _cands if _bar.low <= f["top"] and _bar.high >= f["bottom"]]
-            if _hit:
-                _fvg = _hit[-1]                       # 最近的"被触及"FVG
-                trigger = (f"15m 回踩{'▲' if _want == 'bull' else '▼'}FVG "
-                           f"{_fvg['bottom']:.1f}~{_fvg['top']:.1f}")
-                steps["fvg"] = {"kind": _want, "bottom": round(_fvg["bottom"], 2),
-                                "top": round(_fvg["top"], 2), "born_idx": _fvg.get("born_idx")}
+                      if f.get("kind") == _want and not f.get("filled")
+                      and f.get("idx") is not None
+                      and _leg_from <= int(f["idx"]) <= (_bo_i + 1)]
+            # ---- 回踩: 必须发生在 BOS 之后, 且不早于最近 N 根(笔记第4步: 不追高, 等回调) ----
+            _lo = max(_bo_i + 1, _n - 1 - _N)
+            for _i in range(_n - 1, _lo - 1, -1):
+                _bar = ltf_candles[_i]
+                _hit = [f for f in _cands if _bar.low <= f["top"] and _bar.high >= f["bottom"]]
+                if _hit:
+                    _fvg = _hit[-1]
+                    _age = _n - 1 - _i
+                    trigger = (f"15m 回踩{'▲' if _want == 'bull' else '▼'}FVG "
+                               f"{_fvg['bottom']:.1f}~{_fvg['top']:.1f}"
+                               f"（推动浪FVG · BOS后{_n - 1 - _bo_i - _age}根触及）")
+                    steps["fvg"] = {"kind": _want, "bottom": round(_fvg["bottom"], 2),
+                                    "top": round(_fvg["top"], 2),
+                                    "born_idx": _fvg.get("born_idx") or _fvg.get("idx")}
+                    steps["retrace_age"] = _age
+                    break
+            steps["leg_fvgs"] = len(_cands)
         steps["trigger"] = trigger
         if not trigger:
             return None
-
-        # ③.5 ★2026-10-05 按笔记《BOS和CHOCH概念》补: Internal 结构确认(只加门, 不改方向/止损/止盈)
-        #   笔记"实战配置逻辑": Swing定方向 → Internal CHoCH(回调结束) → Internal BOS(延续确认) → 进场
-        #   在 15m(Internal) 上核验: ①已出现【逆势 CHoCH】(回调) ②随后出现【顺势 BOS】(延续)
-        #   ③该 BOS 距当前不超过 INT_CONFIRM_MAX_AGE_BARS 根、且其后没再出现反向结构事件
-        if getattr(C, "INT_REQUIRE_CHOCH", False) or getattr(C, "INT_REQUIRE_BOS", False):
-            _evs = getattr(ltf_se, "events", []) or []
-            _n = len(ltf_candles) if ltf_candles else 0
-            _up = (htf_trend == "up")
-            _same_bos = "BOS_up" if _up else "BOS_down"
-            _opp_cho = "CHoCH_down" if _up else "CHoCH_up"
-            _opp_new = [e[0] for e in _evs if e[1] in (("BOS_down", "CHoCH_down") if _up else ("BOS_up", "CHoCH_up"))]
-            _k = int(getattr(C, "INT_CONFIRM_MAX_AGE_BARS", 8))
-            _ch_i = next((e[0] for e in reversed(_evs) if e[1] == _opp_cho), None)
-            _bo_i = next((e[0] for e in reversed(_evs) if e[1] == _same_bos), None)
-            _ok, _why = True, ""
-            if getattr(C, "INT_REQUIRE_BOS", False):
-                if _bo_i is None:
-                    _ok, _why = False, "无顺势BOS"
-                elif (_n - 1 - _bo_i) > _k:
-                    _ok, _why = False, f"BOS已过{_n - 1 - _bo_i}根(>{_k})"
-                elif any(x > _bo_i for x in _opp_new):
-                    _ok, _why = False, "BOS后又被反向结构打破"
-            if _ok and getattr(C, "INT_REQUIRE_CHOCH", False):
-                if _ch_i is None:
-                    _ok, _why = False, "无逆势CHoCH(回调)"
-                elif _bo_i is not None and _ch_i >= _bo_i:
-                    _ok, _why = False, "CHoCH晚于BOS(顺序不对)"
-            steps["internal"] = {"choch_idx": _ch_i, "bos_idx": _bo_i,
-                                 "age": (None if _bo_i is None else _n - 1 - _bo_i), "ok": _ok, "why": _why}
-            if not _ok:
-                return None
 
         # ④ 止损 = 形成这段缺口的【起点K线】(FVG 左侧那根)的极值 外侧 ; 止盈 = 目标浮盈金额
         #   ★2026-10-05 用户裁定: 止损不再挂 FVG 区间外沿, 改挂 "FVG 左侧那根K线"的极值 ——
