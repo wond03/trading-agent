@@ -1,5 +1,5 @@
 # 暗夜猎手 (NightHunter) · WEEX 合约公开行情客户端
-# 用途: 【信号】与【回测】统一的数据源 (模拟盘交易仍在 OKX, 见 okx_client)
+# 用途: 【信号】与【回测】统一的数据源 (模拟盘交易见 weex_trade/weex_broker)
 # 依据: 用户上传的 WEEX 现货 V3 行情文档 + 本机实测 api-contract.weex.com 合约接口
 #   GET /capi/v2/market/candles?symbol=cmt_btcusdt&granularity=1h&limit=1000   → 最近 N 根(新→旧)
 #   GET /capi/v2/market/historyCandles?...&endTime=<ms>&limit=100             → 历史分页(向前翻)
