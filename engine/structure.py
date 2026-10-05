@@ -92,7 +92,10 @@ class StructureEngine:
       seg_high / seg_low                 = 同上(兼容旧调用)
     """
 
-    def __init__(self):
+    def __init__(self, swing_len=None):
+        # ★2026-10-05 按笔记《BOS和CHOCH概念》分层: 高周期用大 swing(定 Swing 方向),
+        #   低周期用小 swing(做 Internal 结构)。None → 退回 C.SWING_LEFT(旧行为)。
+        self.swing_len = swing_len
         self.swings = []
         self.trend = None
         self.trend_warn = None      # ★2026-10-05: CHoCH 只看作预警(等反向 BOS 确认) → 记在这里
@@ -113,7 +116,7 @@ class StructureEngine:
         if n < 3:
             self.events, self.swings = [], []
             return self.snapshot()
-        s = max(1, C.SWING_LEFT)
+        s = max(1, int(self.swing_len or C.SWING_LEFT))
         df = ohlc_df(candles)
 
         # ---- swing 高/低 (开源库) ----
