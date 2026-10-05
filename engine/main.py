@@ -16,7 +16,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
 WECOM = os.environ.get(C.WECOM_WEBHOOK_ENV, "")
 DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
-CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "10000"))   # 账户资金(可用 GitHub Secrets 覆盖)
+CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "100"))     # 账户总资金(★2026-10-06 用户明确: 100 USDT)
 _DEGRADE = set()   # ★2026-10-05: 本轮发生"降级到 Gate 现货"的品种(供 run_once 汇总告警)
 
 # ---------- 双方案配置 ----------
@@ -555,19 +555,9 @@ def _engine_side_exit_guard(client, p, ltf_candles):
                     return (f"止盈触发(引擎侧·15m) @{p['tp']:.1f}", p["tp"])
         except Exception:
             pass
-    # ② 交易所真实浮盈(独立于条件单是否还在)
-    try:
-        rows = (client.get_positions(inst_id=p["inst"]).get("data") or [])
-        row = (next((x for x in rows if (x.get("posSide") or "").lower() == p["direction"]), None)
-               or (rows[0] if rows else None))
-        if row is not None:
-            _upl = float(row.get("upl") or 0)
-            print(f"[引擎侧止盈巡检] {p['inst']} upl={_upl:.2f}U (目标 {float(C.TP_USD):.0f}U)")
-            if _upl >= float(C.TP_USD):
-                _px = getattr(bar, "close", None) or p["entry"]
-                return (f"浮盈 {_upl:.2f}U ≥ {float(C.TP_USD):.0f}U → 市价止盈(交易所真值)", _px)
-    except Exception as e:
-        print(f"[引擎侧止盈巡检] {p['inst']} 查持仓失败 {type(e).__name__}")
+    # ② ★2026-10-06 已删除旧的「交易所真实浮盈 ≥ TP_USD(10U) 就止盈」——
+    #   杠杆改 25x / 名义 125U 后，10U 浮盈 ≈ 价格 4%（远大于现在的止盈目标）→ 永不触发、已成死条。
+    #   止盈统一由上面的【15m 触价】判断(用的就是 p["tp"]，与 TP_MODE 口径一致)。
     return None
 
 
@@ -1016,7 +1006,7 @@ def run_once():
                                 if fl > 0:
                                     # WEEX: size = 币的数量; tp/sl 已随下单内联提交, 沿用信号那组价位
                                     posobj = {"inst": inst_id, "direction": sig.direction,
-                                              "entry": avg, "sl": sl_use, "tp": sig.tp,
+                                              "entry": avg, "sl": sl_use, "sl0": sl_use, "tp": sig.tp,
                                               "size": fl, "ratio": 1.0,
                                               "risk_free": False, "tp1_hit": False,
                                               "leverage": used_lev, "profile": pname,
@@ -1052,7 +1042,7 @@ def run_once():
                         else:
                             # DRY_RUN: 建立虚拟持仓 → 观察期自动统计模拟盈亏
                             state["positions"].append({"inst": inst_id, "direction": sig.direction,
-                                                       "entry": sig.entry, "sl": sl_use, "tp": sig.tp,
+                                                       "entry": sig.entry, "sl": sl_use, "sl0": sl_use, "tp": sig.tp,
                                                        "size": size["lots"], "ratio": 1.0,
                                                        "risk_free": False, "tp1_hit": False,
                                                        "leverage": used_lev, "profile": pname,
@@ -1165,6 +1155,7 @@ def run_once():
                                    inst=inst_id, lots=p.get("size", 0))
                     pos.risk_free = p.get("risk_free", False)
                     pos.tp1_hit = p.get("tp1_hit", False)
+                    pos.risk0 = abs(p["entry"] - float(p.get("sl0") or p["sl"]))   # ★1R = 开仓时的风险距离
                     xe = ExitEngine()
                     acts = xe.manage(pos, candles, se, le)
                     # ★2026-10-05 (用户裁定 P0): 引擎侧兜底出场优先 —— 交易所条件单不可靠, 由引擎每轮巡检
