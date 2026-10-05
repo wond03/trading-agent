@@ -10,7 +10,7 @@ from entry import EntryEngine
 from exits import ExitEngine, Position
 from risk import RiskManager
 from weex_broker import WeexBroker       # ★2026-10-04 用户裁定: 交易已切到 WEEX 模拟盘, 不再用 OKX
-import weex_client               # ★2026-10-03 用户裁定: 信号/回测数据源 = WEEX 合约; 模拟盘交易仍在 OKX
+import weex_client               # ★2026-10-03 用户裁定: 信号/回测数据源 = WEEX 合约 (交易见 weex_broker)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
