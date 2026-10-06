@@ -17,6 +17,7 @@ class LiquidityEngine:
         self.fvgs = []            # 活跃FVG: {idx, kind:'bull'/'bear', top, bottom, filled, covered, born_idx}
         self.sweeps = []          # 截取事件: (idx, dir, level, points_swept, kind)
         self.events = []
+        self.ifvg_events = []     # ★视频《IFVG的正确用法》: 被【反向实体收盘穿越】的FVG → IFVG 反转事件
 
     def process(self, candles):
         self._detect_fvg_lib(candles)
@@ -30,6 +31,7 @@ class LiquidityEngine:
         (库自带的 mitigated = "被触碰", 口径过松: 一到 FVG 就判失效 → 无法作为入场参考, 故不用它)"""
         n = len(candles)
         self.fvgs = []
+        self.ifvg_events = []
         if n < 3:
             return
         r = SMC.smc.fvg(ohlc_df(candles), join_consecutive=False)
@@ -40,6 +42,7 @@ class LiquidityEngine:
                 continue
             top, bot = float(TOP[i]), float(BOT[i])
             filled = False
+            flip_idx = None                               # ★IFVG: 触发"反向实体收盘穿越"的那根K线(反转蜡烛)
             body_entered = None                           # ★视频#2: 首个"实体进入缺口"的K线(非纯影线穿刺)
             for j in range(i + 1, n):                     # 规则B3: 实体收盘完全穿过 → 失效
                 _b = candles[j]
@@ -48,13 +51,21 @@ class LiquidityEngine:
                     if _bhi >= bot and _blo <= top:       # 实体(开收区间)与缺口重叠 = 实体进入
                         body_entered = j
                 if F[i] == 1 and _b.close < bot:
-                    filled = True; break
+                    filled = True; flip_idx = j; break
                 if F[i] == -1 and _b.close > top:
-                    filled = True; break
+                    filled = True; flip_idx = j; break
             out.append({"idx": i, "kind": "bull" if F[i] == 1 else "bear",
                         "top": top, "bottom": bot, "filled": filled, "covered": filled,
                         "born_idx": i, "entered_idx": None, "body_entered_idx": body_entered})
             self.events.append((i, "FVG_bull" if F[i] == 1 else "FVG_bear", bot, top))
+            if flip_idx is not None:
+                # ★2026-10-06 视频《IFVG的正确用法》: "被实体收盘穿越"不是销毁, 而是【角色反转成反向入场区】
+                _fd = "bear" if F[i] == 1 else "bull"     # 多头缺口被向下穿过 → 反转方向=看空
+                self.ifvg_events.append({"src_idx": i, "src_kind": "bull" if F[i] == 1 else "bear",
+                                         "top": top, "bottom": bot, "ce": (top + bot) / 2.0,
+                                         "flip_idx": flip_idx, "dir": _fd})
+                self.events.append((flip_idx, f"iFVG_{_fd}_flip", bot, top))
+        self.ifvg_events = self.ifvg_events[-200:]
         self.fvgs = [f for f in out if not f["filled"] and (n - 1 - f["idx"]) <= 100]
 
     def ifvg_bull_bear_flip(self):
