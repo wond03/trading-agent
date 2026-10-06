@@ -28,7 +28,100 @@ class EntryEngine:
         self.last_signal_bar = -99
 
     def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
-        """返回 EntrySignal 或 None
+        """入口分发(★2026-10-06): 按 C.IFVG_MODE 选择模型
+           "off"  = 仅 FVG 回踩模型(现行)
+           "add"  = FVG 无信号时, 再用 IFVG 反转模型补一个信号(增量, 不改现有信号)
+           "only" = 只用 IFVG 反转模型
+        """
+        _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
+        if _mode == "only":
+            steps = {}
+            self.last_steps = steps
+            return self._ifvg_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
+        sig = self._evaluate_fvg(candles, se, le, htf_trend, bar_i, ltf_se, ltf_le, ltf_candles)
+        if sig is None and _mode == "add":
+            steps = {}
+            _s2 = self._ifvg_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
+            if _s2 is not None:
+                self.last_steps = steps
+                return _s2
+        return sig
+
+    def _ifvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
+        """★2026-10-06 按视频《IFVG的正确用法(BV1537DzfEq8)》: IFVG 反转入场
+           事件来源 = ltf_le.ifvg_events (由 liquidity 记录"顺势FVG被反向实体收盘穿越")
+           方向 = 反转方向; 入场 = 反转蜡烛实体 CE(0.5)/0.25; 止损 = 反转蜡烛极值外侧;
+           止盈 = 未被扫掉的摆动极值(视频: 被清扫的原始盘整高/低点)
+           三条件: ①左侧有同向清扫 ②留有未被扫掉的摆动极值 ③取最近那一根 IFVG
+        """
+        _le = ltf_le if ltf_le is not None else le
+        _cd = ltf_candles
+        if _le is None or not _cd:
+            steps["ifvg"] = "无15m数据"; return None
+        n = len(_cd)
+        _age = int(getattr(C, "IFVG_MAX_AGE_BARS", 8))
+        cand = [e for e in (getattr(_le, "ifvg_events", []) or [])
+                if 0 <= (n - 1 - int(e["flip_idx"])) <= _age and int(e["flip_idx"]) <= n - 2]
+        steps["ifvg_n"] = len(cand)
+        if not cand:
+            steps["ifvg"] = "无候选IFVG(近N根内)"; return None
+        e = max(cand, key=lambda x: int(x["flip_idx"]))       # 条件③: 清扫段最后一根
+        d = e["dir"]
+        if getattr(C, "IFVG_REQUIRE_HTF_ALIGN", True) and \
+           ((d == "bull" and htf_trend != "up") or (d == "bear" and htf_trend != "down")):
+            steps["ifvg"] = f"反转方向{d}与1H({htf_trend})不一致"; return None
+        fi = int(e["flip_idx"]); fc = _cd[fi]
+        if getattr(C, "IFVG_REQUIRE_SWEEP", True):             # 条件①: 左侧须有同向清扫
+            _w = int(getattr(C, "IFVG_SWEEP_WINDOW", 30))
+            _want = "down" if d == "bull" else "up"
+            if not any((s[1] == _want and 0 <= fi - int(s[0]) <= _w)
+                       for s in (getattr(_le, "sweeps", []) or [])):
+                steps["ifvg"] = "左侧无同向清扫(条件①不满足)"; return None
+        for j in range(fi + 1, n):                             # 失效: 反转蜡烛极值被收盘破坏
+            if d == "bull" and _cd[j].close < fc.low:
+                steps["ifvg"] = "反转蜡烛低点已被收盘跌破(失效)"; return None
+            if d == "bear" and _cd[j].close > fc.high:
+                steps["ifvg"] = "反转蜡烛高点已被收盘突破(失效)"; return None
+        px = _cd[n - 1].close
+        sw = getattr(se, "swings", []) or []                   # 条件②+止盈: 未被扫掉的摆动极值
+        if d == "bull":
+            _t = [float(s[2]) for s in sw if s[1] == "H" and float(s[2]) > px]
+            tp_liq = min(_t) if _t else None
+        else:
+            _t = [float(s[2]) for s in sw if s[1] == "L" and float(s[2]) < px]
+            tp_liq = max(_t) if _t else None
+        if tp_liq is None and getattr(C, "IFVG_REQUIRE_FAIL", True):
+            steps["ifvg"] = "无未被扫掉的摆动极值(无止盈目标)"; return None
+        _lvl = float(getattr(C, "IFVG_CE_LEVEL", 0.5))          # 入场: 回踩到反转蜡烛实体 CE
+        ce = fc.open + _lvl * (fc.close - fc.open)
+        bar = _cd[n - 1]
+        if not (bar.low <= ce <= bar.high):
+            steps["ifvg"] = f"未回踩到CE({ce:.2f})"; return None
+        entry = ce
+        if d == "bull":
+            sl = fc.low * (1 - C.SL_BUFFER_PCT); risk = entry - sl
+        else:
+            sl = fc.high * (1 + C.SL_BUFFER_PCT); risk = sl - entry
+        if risk <= 0:
+            steps["ifvg"] = "几何无效(risk<=0)"; return None
+        _tpm = str(getattr(C, "IFVG_TP_MODE", "liq")).lower()   # 止盈口径
+        if _tpm == "liq" and tp_liq is not None:
+            tp, _src = tp_liq, "liq"
+        elif str(getattr(C, "TP_MODE", "pct")).lower() == "pct":
+            _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
+            tp, _src = (entry * (1 + _pp) if d == "bull" else entry * (1 - _pp)), "pct"
+        else:
+            _rr = float(C.TP_RR)
+            tp, _src = (entry + _rr * risk if d == "bull" else entry - _rr * risk), "rr"
+        _rrx = abs(tp - entry) / max(risk, 1e-9)
+        steps["ifvg"] = {"dir": d, "flip_idx": fi, "ce": round(ce, 2), "tp_src": _src, "RR": round(_rrx, 2)}
+        _dir = "long" if d == "bull" else "short"
+        _rz = (f"{'▲' if d == 'bull' else '▼'}IFVG反转(15m) | 损{sl:.1f} 标{tp:.1f} "
+               f"(入场=反转蜡烛实体{int(_lvl * 100)}% · TP={_src} · RR1:{_rrx:.1f})")
+        return EntrySignal(_dir, entry, sl, tp, _rz, steps, "high" if _rrx >= 2 else "normal", 1)
+
+    def _evaluate_fvg(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
+        """【FVG 回踩模型】返回 EntrySignal 或 None
         ★2026-10-04 用户裁定 "全部按A": 入场改为【1H BOS/CHoCH 定方向 + 15m 回踩 FVG 进场(一碰就进)】
         ★2026-10-05: 止损 = FVG 左侧那根K线极值外侧 ; 止盈 = 目标浮盈 TP_USD 美元(详见下方③)
         (旧"15m 同向 CHoCH 即入场"已停用)"""
