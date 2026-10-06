@@ -165,6 +165,8 @@ def why_no_signal(ee):
     """把入场引擎最后的进度翻译成"卡在哪一步" (★仅写运行日志, 不推送企业微信)
     ★2026-10-05 按笔记重构后的链条: ① HTF方向 → ② 结构(CHoCH→BOS) → ③ 推动浪含FVG → ④ 回调进FVG"""
     st = getattr(ee, "last_steps", None) or {}
+    if "fvgt" in st and not isinstance(st.get("fvgt"), dict):     # ★新模型(SIGNAL_MODE=fvg_touch)
+        return f"无信号: {st.get('fvgt')}"
     if not st.get("htf_trend"):
         return "卡① 背景: 1H 结构方向未确立"
     _it = st.get("internal")
