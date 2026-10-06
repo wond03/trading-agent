@@ -173,15 +173,38 @@ class EntryEngine:
         n = len(_cd)
         bar = _cd[n - 1]
         _age = int(getattr(C, "FVGH_MAX_AGE_BARS", 12))
+        # ---- 交接事件: 两个来源 ----
+        #  ①反向缺口被【实体收盘】打掉(liquidity.ifvg_events)
+        #  ②★用户口径B: 缺口【接管】—— 后生成的反向缺口覆盖/重叠了同区域的前一个缺口
+        _fvgs = [f for f in (getattr(_le, "fvgs", []) or [])
+                 if f.get("idx") is not None and not f.get("filled")]
         ev = None
         for e in reversed(getattr(_le, "ifvg_events", []) or []):
             if 0 <= n - 1 - int(e["flip_idx"]) <= _age:
-                ev = e; break
+                ev = {"dir": e["dir"], "t": int(e["flip_idx"]),
+                      "why": ("空" if e["src_kind"] == "bear" else "多") + "缺口被实体收盘打掉"}
+                break
+        if getattr(C, "FVGH_TAKEOVER", True):
+            _best = None
+            for f1 in _fvgs:
+                for f0 in _fvgs:
+                    if f0["kind"] == f1["kind"] or int(f1["idx"]) <= int(f0["idx"]):
+                        continue
+                    _lo = max(float(f0["bottom"]), float(f1["bottom"]))
+                    _hi = min(float(f0["top"]), float(f1["top"]))
+                    if _hi - _lo <= 0:                       # 不重叠 → 谈不上接管
+                        continue
+                    if _best is None or int(f1["idx"]) > _best["t"]:
+                        _best = {"dir": "bear" if f1["kind"] == "bear" else "bull", "t": int(f1["idx"]),
+                                 "why": ("空" if f1["kind"] == "bear" else "多") + "缺口接管了同区域的反向缺口"}
+            if _best is not None and 0 <= n - 1 - _best["t"] <= _age:
+                if ev is None:       # ★补位式(用户裁定B): 只在原口径(实体收盘打掉)取不到时, 才启用"接管"
+                    ev = _best
         if ev is None:
             steps["fvgh"] = f"最近{_age}根内无缺口交接"; return None
         want = "bull" if ev["dir"] == "bull" else "bear"
         d = "long" if want == "bull" else "short"
-        t_inv = int(ev["flip_idx"])
+        t_inv = int(ev["t"])
         if getattr(C, "FVGH_REQUIRE_CHOCH", False):
             _W = int(getattr(C, "FVGH_CHOCH_WINDOW", 12))
             _evs = [e for e in (getattr(_se, "events", []) or [])
@@ -222,10 +245,10 @@ class EntryEngine:
         tp, _src = self._resolve_tp(d, px, risk, _se)
         rr = abs(tp - px) / max(risk, 1e-9)
         steps["fvgh"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
-                         "handover": ("空" if ev["src_kind"] == "bear" else "多") + "FVG被实体收盘打掉",
+                         "handover": ev["why"],
                          "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
         _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}缺口交接 · "
-               f"{'空' if ev['src_kind'] == 'bear' else '多'}FVG被打掉 → 回踩顺势缺口 "
+               f"{ev['why']} → 回踩顺势缺口 "
                f"{f['bottom']:.1f}~{f['top']:.1f}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
 
