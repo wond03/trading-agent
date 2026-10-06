@@ -216,8 +216,8 @@ FVGB_WICK_MIN_PCT = 0.08
 #         ④找不到任何合格位 → 【这笔单不提示】。
 STOP_MODE = "fvg_left"       # "key"=关键位口径(★已实现, 待用户确认口径后再开) / "fvg_left"=缺口左根K线极值(现行)
 STOP_MIN_PCT = 0.2           # 太近(小于该距离)的位不认
-STOP_MAX_PCT = 0.5           # 太远(超过该距离) → 不做
-STOP_SPENT_ZONE_PCT = 0.15   # 该位附近若有"已被回踩过"的缺口 → 这个位撑不住
+STOP_MAX_PCT = 0.65          # 太远(超过该距离) → 不做 (★由用户两例反推: 0.62%认 ✅ / 0.68%否 ❌)
+STOP_SPENT_ZONE_PCT = 0.15   # [已弃用] 改用"该位本身是否落在缺口区间内"判定
 STOP_SWING_N = 60            # 只回溯最近 N 根内的摆动极值
 FVGT_REQUIRE_STRUCT = True    # 方案2: 需最近 N 根内出现过 BOS/CHoCH(结构背书)
 FVGT_STRUCT_WINDOW = 8        # 结构须落在最近 N 根 15m 内
