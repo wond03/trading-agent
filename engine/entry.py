@@ -3,6 +3,11 @@
 # 规则依据: C1-C20 (五步流程/双蜡烛真假突破/MSS双仓/斐波分批/等待序列/时段过滤)
 import config as C
 
+
+def _pen(b, f):
+    """价格真正『探进』缺口(严格越过近沿) —— 口径B: 缺口形成即视为挂单区, 价格探进就提示"""
+    return (b.low < f["top"] - 1e-9) and (b.high > f["bottom"] + 1e-9)
+
 class EntrySignal:
     def __init__(self, direction, entry, sl, tp, reason, steps, confidence="normal", sweep_pts=1):
         self.direction = direction   # 'long' / 'short'
@@ -42,6 +47,10 @@ class EntryEngine:
             steps = {}
             self.last_steps = steps
             return self._fvg_touch_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
+        if str(getattr(C, "SIGNAL_MODE", "chain")).lower() == "fvg_handover":
+            steps = {}
+            self.last_steps = steps
+            return self._fvg_handover_signal(se, le, ltf_se, ltf_le, ltf_candles, steps)
         _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
         _cm = str(getattr(C, "FVG_COUNTER_MODE", "off")).lower()
         if _mode == "only":
@@ -126,6 +135,82 @@ class EntryEngine:
                          "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
         _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}FVG回踩(15m) · 缺口 "
                f"{f['bottom']:.1f}~{f['top']:.1f}{_ev}")
+        return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
+
+    def _fvg_handover_signal(self, se, le, ltf_se, ltf_le, ltf_candles, steps):
+        """★2026-10-07 用户读图口径: 【缺口交接 → 回踩顺势缺口】
+           ① 交接: 某个反向缺口被【实体收盘】打掉(liquidity.ifvg_events) → 方向 = 赢家一侧;
+           ② 顺势缺口: 交接后 N 根内新生成、且尚未回填的同向缺口;
+           ③ 触发: 本根【新回踩】进该顺势缺口(上一根不在其中);
+           止损 = 该缺口左根K线极值外侧; 止盈 = 全局 TP_MODE。
+        """
+        _le = ltf_le if ltf_le is not None else le
+        _se = ltf_se if ltf_se is not None else se
+        _cd = ltf_candles
+        if _le is None or not _cd or len(_cd) < 6:
+            steps["fvgh"] = "无15m数据"; return None
+        n = len(_cd)
+        bar = _cd[n - 1]
+        _age = int(getattr(C, "FVGH_MAX_AGE_BARS", 12))
+        ev = None
+        for e in reversed(getattr(_le, "ifvg_events", []) or []):
+            if 0 <= n - 1 - int(e["flip_idx"]) <= _age:
+                ev = e; break
+        if ev is None:
+            steps["fvgh"] = f"最近{_age}根内无缺口交接"; return None
+        want = "bull" if ev["dir"] == "bull" else "bear"
+        d = "long" if want == "bull" else "short"
+        t_inv = int(ev["flip_idx"])
+        if getattr(C, "FVGH_REQUIRE_CHOCH", False):
+            _W = int(getattr(C, "FVGH_CHOCH_WINDOW", 12))
+            _evs = [e for e in (getattr(_se, "events", []) or [])
+                    if 0 <= n - 1 - int(e[0]) <= _W and str(e[1]).startswith("CHoCH")]
+            if not _evs:
+                steps["fvgh"] = f"最近{_W}根内无CHoCH"; return None
+        _after = int(getattr(C, "FVGH_MAX_BARS_AFTER", 8))
+        cands = [f for f in (getattr(_le, "fvgs", []) or [])
+                 if f.get("kind") == want and not f.get("filled") and f.get("idx") is not None
+                 and t_inv <= int(f["idx"]) <= t_inv + _after]
+        steps["fvgh_n"] = len(cands)
+        if not cands:
+            steps["fvgh"] = "交接后无顺势缺口"; return None
+        hit = []
+        for f in cands:
+            _fi = int(f["idx"])
+            if (n - 1) < _fi + 1:
+                continue                                  # 缺口尚未形成
+            if not _pen(bar, f):
+                continue                                  # 本根未探进缺口
+            if any(_pen(_cd[k], f) for k in range(_fi + 1, n - 1)):
+                continue                                  # 之前已探进过 → 非"首次回踩"
+            hit.append(f)
+        if not hit:
+            steps["fvgh"] = "本根未新回踩进顺势缺口"; return None
+        f = sorted(hit, key=lambda x: int(x["idx"]))[-1]
+        px = bar.close
+        _li = int(f["idx"]) - 1
+        lc = _cd[_li] if 0 <= _li < n else None
+        if lc is None:
+            steps["fvgh"] = "缺FVG左根K线"; return None
+        if d == "long":
+            sl = lc.low * (1 - C.SL_BUFFER_PCT); risk = px - sl
+        else:
+            sl = lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
+        if risk <= 0:
+            steps["fvgh"] = "几何无效(price已在缺口外)"; return None
+        if str(getattr(C, "TP_MODE", "pct")).lower() == "pct":
+            _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
+            tp, _src = (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct"
+        else:
+            _rr = float(C.TP_RR)
+            tp, _src = (px + _rr * risk if d == "long" else px - _rr * risk), "rr"
+        rr = abs(tp - px) / max(risk, 1e-9)
+        steps["fvgh"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
+                         "handover": ("空" if ev["src_kind"] == "bear" else "多") + "FVG被实体收盘打掉",
+                         "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
+        _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}缺口交接 · "
+               f"{'空' if ev['src_kind'] == 'bear' else '多'}FVG被打掉 → 回踩顺势缺口 "
+               f"{f['bottom']:.1f}~{f['top']:.1f}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
 
     def _counter_fvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
