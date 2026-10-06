@@ -51,6 +51,10 @@ class EntryEngine:
             steps = {}
             self.last_steps = steps
             return self._fvg_handover_signal(se, le, ltf_se, ltf_le, ltf_candles, steps)
+        if str(getattr(C, "SIGNAL_MODE", "chain")).lower() == "fvg_both":
+            steps = {}
+            self.last_steps = steps
+            return self._fvg_both_signal(se, le, ltf_se, ltf_le, ltf_candles, steps)
         _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
         _cm = str(getattr(C, "FVG_COUNTER_MODE", "off")).lower()
         if _mode == "only":
@@ -249,6 +253,69 @@ class EntryEngine:
                          "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
         _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}缺口交接 · "
                f"{ev['why']} → 回踩顺势缺口 "
+               f"{f['bottom']:.1f}~{f['top']:.1f}")
+        return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
+
+    def _fvg_both_signal(self, se, le, ltf_se, ltf_le, ltf_candles, steps):
+        """★2026-10-07 用户裁定【两侧独立】（SIGNAL_MODE="fvg_both"）:
+        多/空各自维护 —— 只要某一侧的缺口【没被反向缺口接管】(还"活着"), 价格首次探进它,
+        就按【该缺口自己的方向】提示; 不再让"最近一次交接"把方向整个盖掉。
+        （用户原话: "让它同时维护多、空两侧——只要某一侧的缺口还活着、价格回踩进去就提示"）
+        止损 = 缺口左根K线极值外侧; 止盈 = 全局 TP_MODE。
+        """
+        _le = ltf_le if ltf_le is not None else le
+        _se = ltf_se if ltf_se is not None else se
+        _cd = ltf_candles
+        if _le is None or not _cd or len(_cd) < 6:
+            steps["fvgb"] = "无15m数据"; return None
+        n = len(_cd)
+        bar = _cd[n - 1]
+        _fvgs = [f for f in (getattr(_le, "fvgs", []) or [])
+                 if f.get("idx") is not None and not f.get("filled")]
+
+        def _taken_over(f):
+            """该缺口是否已被【后生成的反向缺口】接管(区间重叠) → 这一侧在该处失效"""
+            for g in _fvgs:
+                if g["kind"] == f["kind"] or int(g["idx"]) <= int(f["idx"]):
+                    continue
+                if min(float(f["top"]), float(g["top"])) - max(float(f["bottom"]), float(g["bottom"])) > 0:
+                    return True
+            return False
+
+        hit = []
+        for f in _fvgs:
+            if _taken_over(f):
+                continue                                          # 已被反向缺口接管
+            _fi = int(f["idx"])
+            if (n - 1) < _fi + 1:
+                continue                                          # 缺口尚未形成
+            if not _pen(bar, f):
+                continue                                          # 本根未探进缺口
+            if any(_pen(_cd[k], f) for k in range(_fi + 1, n - 1)):
+                continue                                          # 之前已探进过 → 非"首次回踩"
+            hit.append(f)
+        steps["fvgb_n"] = len(hit)
+        if not hit:
+            steps["fvgb"] = "两侧均无新回踩(无既活着又被探进的缺口)"; return None
+        f = sorted(hit, key=lambda x: int(x["idx"]))[-1]
+        d = "long" if f["kind"] == "bull" else "short"
+        px = bar.close
+        _li = int(f["idx"]) - 1
+        lc = _cd[_li] if 0 <= _li < n else None
+        if lc is None:
+            steps["fvgb"] = "缺FVG左根K线"; return None
+        if d == "long":
+            sl = lc.low * (1 - C.SL_BUFFER_PCT); risk = px - sl
+        else:
+            sl = lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
+        if risk <= 0:
+            steps["fvgb"] = "几何无效(price已在缺口外)"; return None
+        tp, _src = self._resolve_tp(d, px, risk, _se)
+        rr = abs(tp - px) / max(risk, 1e-9)
+        steps["fvgb"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
+                         "mode": "两侧独立(缺口未被反向接管)",
+                         "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
+        _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}缺口回踩(两侧独立) "
                f"{f['bottom']:.1f}~{f['top']:.1f}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
 
