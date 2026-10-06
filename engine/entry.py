@@ -361,10 +361,18 @@ class EntryEngine:
             _lo, _hi = px * (1 - _smax), px * (1 - _smin)
         else:
             _lo, _hi = px * (1 + _smin), px * (1 + _smax)
-        # ★用户口径(校准): "回踩缺口留下的位置"不算 —— 该极值若落在任何一个缺口的区间内, 就作废
-        #   (用户实例: 00:45 低点 4151.2 正好落在 22:45 缺口 4151.1~4154.7 里 → 无效)
-        _gaps = [(min(float(ev[2]), float(ev[3])), max(float(ev[2]), float(ev[3])))
-                 for ev in (getattr(le, "events", []) or []) if str(ev[1]).startswith("FVG")]
+        # ★用户口径(终版): 只有【还没被回踩过】的缺口才有"否决权"——
+        #   缺口一旦被价格回踩过一次就【退役】, 不再拿它去否决别的位(用户: "16:30的fvg被18:15的k线回踩过了")。
+        _gaps = []
+        for ev in (getattr(le, "events", []) or []):
+            if not str(ev[1]).startswith("FVG"):
+                continue
+            gi = int(ev[0]); gb = min(float(ev[2]), float(ev[3])); gt = max(float(ev[2]), float(ev[3]))
+            if gi >= n - 1:
+                continue
+            if any(cd[k].low <= gt and cd[k].high >= gb for k in range(gi + 2, n)):
+                continue                                    # 已被回踩过 → 退役, 无否决权
+            _gaps.append((gb, gt))
         out = []
         for idx, kind, lvl in (getattr(ltf_se, "swings", []) or []):
             if (d == "long" and kind != "L") or (d == "short" and kind != "H"):
@@ -382,7 +390,7 @@ class EntryEngine:
             out.append(lvl)
         if not out:
             return None, "没有'未被再测、周围也没被缺口消费过'的关键位"
-        return min(out, key=lambda x: abs(x - px)), "本段关键极值(未被再测)"
+        return max(out, key=lambda x: abs(x - px)), "本段结构极值(未被再测)"   # ★用户: 止损放"这一段的结构极值"(最外侧的合格位)
 
     def _counter_fvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
         """★2026-10-06 用户想法: 【反向 FVG】入场 —— "BOS 产生的 FVG 不只顺势那根有效"
