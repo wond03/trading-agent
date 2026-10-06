@@ -29,12 +29,12 @@ trading_agent/
 │   ├── structure.py       结构引擎（开源库 smartmoneyconcepts + swing=3 + CHoCH只预警）
 │   ├── liquidity.py       流动性/FVG（开源库 fvg + 截取检测）
 │   ├── entry.py           入场模板（fvg_both 两侧独立缺口回踩 + 三道过滤 + 止损=本段结构极值）
-│   ├── exits.py           出场管理（保本 / 移动止损 / 浮盈按币数量计）
-│   ├── risk.py            风控门（按 SIGNAL_MODE 取条件）            风控门
+│   ├── exits.py           出场管理（★DRY_RUN=1 下不执行，仅留档）
+│   ├── risk.py            风控门（按 SIGNAL_MODE 取条件）
 │   ├── weex_client.py     WEEX 合约行情（信号/回测数据源）
 │   ├── weex_trade.py      WEEX 模拟盘客户端（签名/下单内联TP-SL/条件单）
 │   ├── weex_broker.py     WEEX 适配层
-│   ├── main.py            主循环（引擎侧兜底出场 + 交易 + 推送 + 日报）
+│   ├── main.py            主循环（信号判定 + 推送 + 图表；DRY_RUN=1 不下单）
 │   ├── reports/           运行日报归档（engine/reports/运行日报_YYYYMMDD.md）
 │   └── state.json         运行状态（由 Actions 每轮提交持久化）
 ├── tools/                 工具脚本（回测 / 频率扫描 / 诊断 / 知识库同步）
