@@ -146,6 +146,21 @@ class WeexBroker:
                 out["sl"] = x
         return out
 
+    def algo_key(self, row):
+        """★2026-10-07 新增: 把一条条件单行规整成 (内部inst, 小写posSide); 认不出 → (None, None)。
+        OKX 老形状用 instId/posSide; WEEX 用 symbol/positionSide(大写)。
+        用途: main 里"清理无持仓孤立挂单"必须先能正确归属, 否则会【误撤】用户手动挂的保护单。
+        认不出时返回 (None,None) → 调用方一律【跳过不撤】(失败安全)。"""
+        _inst = row.get("instId")
+        _psd = row.get("posSide")
+        if not _inst:
+            _sym = (row.get("symbol") or "").upper()
+            _inst = next((k for k, v in SYMBOL_MAP.items()
+                          if _sym and _sym in ((v[0] or "").upper(), (v[1] or "").upper())), None)
+        if not _psd:
+            _psd = row.get("positionSide")
+        return _inst, (str(_psd).lower() if _psd else None)
+
     def _algo_resp(self, j):
         """把条件单接口返回规整成 OKX 形状(含 algoId)。
         ★注意: 失败时返回 {"code":-1141,"msg":...} (没有 success/errorCode 字段) → 必须用 code 判断, 不能只看 success。"""
