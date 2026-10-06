@@ -123,12 +123,7 @@ class EntryEngine:
             sl = lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
         if risk <= 0:
             steps["fvgt"] = "几何无效(price已在缺口外)"; return None
-        if str(getattr(C, "TP_MODE", "pct")).lower() == "pct":
-            _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
-            tp, _src = (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct"
-        else:
-            _rr = float(C.TP_RR)
-            tp, _src = (px + _rr * risk if d == "long" else px - _rr * risk), "rr"
+        tp, _src = self._resolve_tp(d, px, risk, _se)
         rr = abs(tp - px) / max(risk, 1e-9)
         _ev = (" · 近结构 " + "/".join(steps.get("fvgt_evt") or [])) if steps.get("fvgt_evt") else ""
         steps["fvgt"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
@@ -136,6 +131,32 @@ class EntryEngine:
         _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}FVG回踩(15m) · 缺口 "
                f"{f['bottom']:.1f}~{f['top']:.1f}{_ev}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
+
+    def _resolve_tp(self, d, px, risk, ltf_se):
+        """止盈口径统一出口(★2026-10-07 用户要求: 止盈改"打结构位")
+           "pct"    = 固定百分比(±TP_PCT%)
+           "struct" = 结构位: 多单打到【上方最近的已确认摆动高点】, 空单打到【下方最近的摆动低点】;
+                      距入场不足 TP_STRUCT_MIN_PCT% 的摆动点跳过(避免贴脸)，没有可用目标则退回 pct
+           "rr"     = 按 R 倍数
+        """
+        mode = str(getattr(C, "TP_MODE", "pct")).lower()
+        _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
+        if mode == "struct":
+            _mp = float(getattr(C, "TP_STRUCT_MIN_PCT", 0.5)) / 100.0
+            sw = getattr(ltf_se, "swings", []) or []
+            if d == "long":
+                _c = [x[2] for x in sw if x[1] == "H" and x[2] > px * (1 + _mp)]
+                if _c:
+                    return min(_c), "struct"
+            else:
+                _c = [x[2] for x in sw if x[1] == "L" and x[2] < px * (1 - _mp)]
+                if _c:
+                    return max(_c), "struct"
+            return (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct(退回)"
+        if mode == "rr":
+            _rr = float(C.TP_RR)
+            return (px + _rr * risk if d == "long" else px - _rr * risk), "rr"
+        return (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct"
 
     def _fvg_handover_signal(self, se, le, ltf_se, ltf_le, ltf_candles, steps):
         """★2026-10-07 用户读图口径: 【缺口交接 → 回踩顺势缺口】
@@ -198,12 +219,7 @@ class EntryEngine:
             sl = lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
         if risk <= 0:
             steps["fvgh"] = "几何无效(price已在缺口外)"; return None
-        if str(getattr(C, "TP_MODE", "pct")).lower() == "pct":
-            _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
-            tp, _src = (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct"
-        else:
-            _rr = float(C.TP_RR)
-            tp, _src = (px + _rr * risk if d == "long" else px - _rr * risk), "rr"
+        tp, _src = self._resolve_tp(d, px, risk, _se)
         rr = abs(tp - px) / max(risk, 1e-9)
         steps["fvgh"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
                          "handover": ("空" if ev["src_kind"] == "bear" else "多") + "FVG被实体收盘打掉",
