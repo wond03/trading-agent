@@ -21,9 +21,18 @@ BASE_TF = "15m"       # ★2026-10-07 用户裁定「把 1 小时撤掉」→ �
 HTF = "15m"           # 背景级别 = 15m 自身(不再用 1H)
 STRATEGY_PROFILES = {
     "15": {"label": "15m", "base_tf": "15m", "htf": "15m", "ltf": "15m",
-           "swing_left": 4, "swing_right": 4,
-           "swing_htf": 4, "swing_ltf": 4},   # ★2026-10-07 单周期链: 背景与入场用同一 swing(原 10 是为 1H 设计的)
+           "swing_left": 3, "swing_right": 3,
+           "swing_htf": 3, "swing_ltf": 3},   # ★2026-10-07 用户裁定: swing 4→3, 对齐用户读图口径
 }
+#   ★2026-10-07 用户裁定「swing 改 3 根」: 用用户 10-06 那张图当"标准答案"比对 ——
+#     用户手画的 BOS(≈4154) 与 CHoCH(≈4146), 在 swing=3 时正好被引擎认定为
+#     18:30 BOS_up 4154.0 与 22:15 CHoCH_down 4146.3; 而 swing=4(旧值) 那 11 小时只认 1 个事件。
+#     ⇒ 用户的眼睛 ≈ 1~3 根, 引擎原用 4 根 → 过粗。诊断脚本: tools/diag_struct_marks.py
+
+# ---------- ★2026-10-07 用户裁定: 推送静默时段(北京时) ----------
+#   用户: "不要求24小时, 主要在交易时段盯就行了(亚洲盘/伦敦盘/纽约盘)" → 三盘并集 ≈ 07:00~次日05:00,
+#   只掐掉凌晨最寡淡的一段。该时段内【不推信号提醒】(引擎照常运行、照常记录, 只是不发消息)。
+QUIET_HOURS_BJ = (5, 7)       # [起, 止) 北京时整点; 仅此区间静默; None=关闭
 #   ★2026-10-07 用户裁定「把一小时撤掉」: 周期链由 1H+15m → 【只看 15m】。
 #     方向/背景/入场全部在 15m 上判定(原 1H 的方向门去掉)。若之后想换回/换成 4H:
 #     只需改本 dict 的 base_tf/htf(或 env ENTRY_DIR_SOURCE), 其余链路不动。
@@ -71,9 +80,11 @@ LIQ_BUFFER_PCT = 0.003      # [工] 仅用于"孤儿仓保命止损": 在【交�
 # ---------- 结构引擎 (模块A) ----------
 # ★2026-10-04 起 = 【唯一关键旋钮】: 结构参考点/斐波腿 = 已确认 swing 极值(照开源库 smartmoneyconcepts 机制)
 #   窗口越宽 → swing 越"大" → 腿越宽、止损越宽、信号越少但单笔期望越高(90天实测见 todo)
-SWING_LEFT = 4        # [工] swing 极值确认窗口(左) —— 与开源库 smartmoneyconcepts 的 swing_length 同义
-SWING_RIGHT = 4       # [工] swing 极值确认窗口(右)
-                      # ★2026-10-04 用户裁定: 统一为 4 (线上原为 2/回测原为 5, 已对齐)。
+SWING_LEFT = 3        # [工] swing 极值确认窗口(左) —— 与开源库 smartmoneyconcepts 的 swing_length 同义
+SWING_RIGHT = 3       # [工] swing 极值确认窗口(右)
+                      # ★2026-10-07 用户裁定 4→3: 用用户 10-06 那张图当标准答案比对 ——
+                      #   他手画的 BOS(≈4154)/CHoCH(≈4146) 在 s=3 时正好对应引擎的 18:30 BOS_up 4154.0
+                      #   与 22:15 CHoCH_down 4146.3; s=4 时那 11 小时只认 1 个事件(全漏)。
                       #   参考: 开源库默认 swing_length=50(左右各50根), 在 1H/15m 上信号过少(90天仅6笔)。
                       #   敏感度(90天): s=2 → 353笔/−59.6U; s=4 → 见回测报告; s=5 → 164笔/+47.5U;
                       #                 s=10 → 92笔/+40.0U; s=20 → 39笔/+129.2U(样本少); s=50 → 6笔。
@@ -81,11 +92,11 @@ SWING_RIGHT = 4       # [工] swing 极值确认窗口(右)
 # ★2026-10-05 按笔记《BOS和CHOCH概念》分层: 高周期用大 swing 定【Swing 方向】, 低周期用小 swing 做【Internal 结构】。
 #   笔记建议: 高时间框架 Swing Length 10~15 ; 低时间框架(15m/5m) 2~5。
 #   (运行期会被 STRATEGY_PROFILES[*].swing_htf/swing_ltf 覆盖, 两处必须一致)
-SWING_LEN_HTF = 10    # 1H(背景/定方向) 的 swing_length
+SWING_LEN_HTF = 3     # 背景/定方向 的 swing_length (★2026-10-07: 10 → 3, 与 profile 的 swing_htf 保持一致)
                       # ★2026-10-05 90天实测选档(其余口径: 内部确认门k=4 + 止盈浮盈10U):
                       #   1H=4(旧) 127笔/净-26.09U → 1H=10 【99笔/净+40.88U/每笔+0.413/胜率18.2%】(最优,首次转正)
                       #   → 1H=12 105笔/+33.75U ; 1H=15 102笔/+1.28U ; 15m=2 211笔/-64.91U(太细=噪声)
-SWING_LEN_LTF = 4     # 15m(入场/Internal) 的 swing_length
+SWING_LEN_LTF = 3     # 15m(入场/Internal) 的 swing_length (★2026-10-07: 4 → 3)
 SMC_STRICT_CAUSAL = True   # [工] 无未来函数守卫: break 必须发生在 swing 确认(pivot+S)之后
                            #   (开源库原版允许 break 早于 swing 确认 = 回测偷看未来; True=修掉)
 # ★2026-10-05 按用户笔记《BOS和CHOCH概念》修正: CHoCH 只是【反转预警】, 不立即翻转趋势。
