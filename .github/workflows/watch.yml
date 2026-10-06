@@ -38,7 +38,9 @@ jobs:
           # ★2026-10-05 (P3-11): 运行日报同步到知识库 wind/05-运行日报(未配置则自动跳过, 不影响交易)
           IMA_OPENAPI_CLIENTID: ${{ secrets.IMA_OPENAPI_CLIENTID }}
           IMA_OPENAPI_APIKEY: ${{ secrets.IMA_OPENAPI_APIKEY }}
-          DRY_RUN: "0"          # 真实模拟盘交易
+          # ★★2026-10-07 用户裁定: 改为【信号提示模式】—— 只推信号+标注图, 不下任何单, 决策权回到用户自己
+          #   (要恢复自动模拟盘下单: 把下面改成 "0" 即可, 无需改动其它任何文件)
+          DRY_RUN: "1"          # 1=只提示不下单(现行) / 0=自动模拟盘交易
           CAPITAL_USD: "100"    # 账户总资金(2026-10-06 用户明确: 100 USDT)
           PUSH_TEST: ${{ inputs.push_test }}   # 2026-10-03: 1=只推测试图不下单
           FORCE_DAILY: ${{ inputs.force_daily }}   # 2026-10-03: 1=强制推日报(测试模板)
