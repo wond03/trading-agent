@@ -164,6 +164,15 @@ IFVG_TP_MODE = "liq"          # 止盈: "liq"=未被扫掉的摆动极值(被清
 #   (若再把 INT_REQUIRE_BOS/INT_REQUIRE_CHOCH 关掉, 就接近"纯 15m FVG")
 ENTRY_DIR_SOURCE = "1h"
 
+# ---------- ★2026-10-06 用户想法: BOS/CHoCH 产生的 FVG 都有价值(含【反向FVG】) ----------
+#   用户原话要点: ① BOS 不代表价格继续; ② 后续跌破该段最近低点 → 转 CHoCH(方向反转), 伴随的 FVG 可入场;
+#                 ③ 涨 BOS 后出现的【看跌 FVG】(与 BOS 反向) 也可入场; ④ BOS 与 CHoCH 的 FVG 都有参考价值。
+#   现状: 只取【顺势】FVG(方向=1H); 本开关追加【反向 FVG】入场(方向=CHoCH 的反转方向, 与 1H 相反)。
+#   实现: engine/entry.py::_counter_fvg_signal(15m 逆势CHoCH → 该反向 FVG 回踩入场)。
+FVG_COUNTER_MODE = "off"      # "off"=现行 / "add"=顺势FVG无信号时补一个反向FVG / "only"=仅反向FVG
+CFVG_MAX_AGE_BARS = 8         # 逆势 CHoCH 距当前最多 N 根 15m 内
+CFVG_REQUIRE_CHOCH = True     # True=须有逆势CHoCH锚定(用户①②); False=只看"反向FVG"(用户③)
+
 # ---------- ★2026-10-05 按用户笔记《BOS和CHOCH概念》补: Internal 结构确认 ----------
 #   笔记"实战配置逻辑(专业用法)": ①Swing结构定方向 → ②等 Internal CHoCH(微观逆势转变=回调结束)
 #   → ③等 Internal BOS(顺势突破=延续确认, 笔记称 "First BOS") → 才进场。
