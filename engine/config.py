@@ -197,6 +197,14 @@ ENTRY_DIR_SOURCE = "1h"
 #   方向: 看涨缺口(bull FVG)→做多提示; 看跌缺口(bear FVG)→做空提示。
 #   止损: FVG 左侧那根K线极值外侧(沿用现行); 止盈: 沿用全局 TP_MODE(现为固定±1%)。
 SIGNAL_MODE = "fvg_both"      # "chain"=旧四步链 / "fvg_touch"=FVG回踩 / "fvg_handover"=缺口交接定向 / "fvg_both"=★两侧独立(现行)
+# ---------- ★2026-10-07 用户口述"我为什么不会做这笔单"(10-07 03:15 那笔) → 三条过滤 ----------
+#   ①"上方引线太长了"      = 上方被拒绝, 不宜做多  → FVGB_REJECT_LONG_WICK
+#   ②"回踩的K线是实体"      = 实体压进缺口(真卖压), 不是影线探入 → FVGB_WICK_ONLY
+#   ③"止损几乎没有什么可靠的位置" = 止损要落在结构位外侧(★待用户确认口径, 暂未实现)
+FVGB_WICK_ONLY = True        # ② 回踩必须【影线】探进缺口; 实体(开收区间)压进缺口 → 不做
+FVGB_REJECT_LONG_WICK = True # ① 入场前出现【长上影】→ 不做多(对称: 【长下影】→ 不做空)
+FVGB_WICK_RATIO = 1.5        # 影线 >= 实体 × 该倍数, 且 >= 价格 × FVGB_WICK_MIN_PCT% 才算"长影线"
+FVGB_WICK_MIN_PCT = 0.08
 FVGT_REQUIRE_STRUCT = True    # 方案2: 需最近 N 根内出现过 BOS/CHoCH(结构背书)
 FVGT_STRUCT_WINDOW = 8        # 结构须落在最近 N 根 15m 内
 FVGT_MAX_CAND = 4             # 同一时刻最多取最近 N 根未回填 FVG 作为候选(取最近那根)
