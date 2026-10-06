@@ -205,6 +205,8 @@ FVGB_WICK_ONLY = True        # ② 回踩必须【影线】探进缺口; 实体(
 FVGB_REJECT_LONG_WICK = True # ① 入场前出现【长上影】→ 不做多(对称: 【长下影】→ 不做空)
 FVGB_WICK_RATIO = 1.5        # 影线 >= 实体 × 该倍数, 且 >= 价格 × FVGB_WICK_MIN_PCT% 才算"长影线"
 FVGB_WICK_MIN_PCT = 0.08
+FVGB_REQUIRE_CHOCH = False   # ★可选背景条件: 近期须出现过【反向 CHoCH】(多=CHoCH_down / 空=CHoCH_up)
+FVGB_CHOCH_WINDOW = 12    # "近期" = 最近 N 根 15m
 # ---------- ★2026-10-07 用户口径③: 止损落在"关键位", 且该位必须还【有效】 ----------
 #   用户原话(以 03:15 那笔多单为例): "止损在02:30这个不现实太近; 底下还有00:45的低点, 也不行,
 #   这两个地方都回踩过fvg; 挂在22:30这个低点就是太远了; 为什么前面的fvg都回踩过了大概率撑不住了"
