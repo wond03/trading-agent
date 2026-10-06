@@ -39,11 +39,22 @@ class EntryEngine:
             if _t in ("up", "down"):
                 htf_trend = _t
         _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
+        _cm = str(getattr(C, "FVG_COUNTER_MODE", "off")).lower()
         if _mode == "only":
             steps = {}
             self.last_steps = steps
             return self._ifvg_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
+        if _cm == "only":
+            steps = {}
+            self.last_steps = steps
+            return self._counter_fvg_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
         sig = self._evaluate_fvg(candles, se, le, htf_trend, bar_i, ltf_se, ltf_le, ltf_candles)
+        if sig is None and _cm == "add":
+            steps = {}
+            _s = self._counter_fvg_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
+            if _s is not None:
+                self.last_steps = steps
+                return _s
         if sig is None and _mode == "add":
             steps = {}
             _s2 = self._ifvg_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
@@ -51,6 +62,74 @@ class EntryEngine:
                 self.last_steps = steps
                 return _s2
         return sig
+
+    def _counter_fvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
+        """★2026-10-06 用户想法: 【反向 FVG】入场 —— "BOS 产生的 FVG 不只顺势那根有效"
+           A) 有逆势 CHoCH 锚定: 15m 出现【与背景方向相反】的 CHoCH(结构反转) → 取该【反转方向】的 FVG → 回踩入场
+           B) 无锚定(CFVG_REQUIRE_CHOCH=False): 只要出现【与背景方向相反的 FVG】→ 回踩入场
+           方向 = 反转方向(与 1H 相反); 止损 = FVG 左根K线极值外侧; 止盈 = 全局 TP_MODE
+        """
+        _le = ltf_le if ltf_le is not None else le
+        _se = ltf_se if ltf_se is not None else se
+        _cd = ltf_candles
+        if _le is None or not _cd or not htf_trend:
+            steps["cfvg"] = "无15m数据/无背景方向"; return None
+        n = len(_cd)
+        want = "bear" if htf_trend == "up" else "bull"        # 反转方向 = 与背景相反
+        _dir = "short" if want == "bear" else "long"
+        _ci = None
+        if getattr(C, "CFVG_REQUIRE_CHOCH", True):
+            _name = "CHoCH_down" if want == "bear" else "CHoCH_up"
+            _ci = next((e[0] for e in reversed(getattr(_se, "events", []) or []) if e[1] == _name), None)
+            if _ci is None:
+                steps["cfvg"] = "无逆势CHoCH(锚定缺失)"; return None
+            if (n - 1 - _ci) > int(getattr(C, "CFVG_MAX_AGE_BARS", 8)):
+                steps["cfvg"] = f"逆势CHoCH已过{n - 1 - _ci}根"; return None
+        _lo_fvg = (_ci - 1) if _ci is not None else 0
+        _cands = [f for f in (getattr(_le, "fvgs", []) or [])
+                  if f.get("kind") == want and not f.get("filled")
+                  and f.get("idx") is not None and int(f["idx"]) >= _lo_fvg]
+        steps["cfvg_n"] = len(_cands)
+        if not _cands:
+            steps["cfvg"] = "无反向FVG"; return None
+        _pick = str(getattr(C, "FVG_PICK", "nearest")).lower()
+        if _pick == "exclude_newest" and len(_cands) > 1:
+            _cands = _cands[:-1]
+        elif _pick == "farthest" and _cands:
+            _cands = _cands[:1]
+        _N = int(getattr(C, "RETRACE_MAX_AGE_BARS", 4))
+        _lo = max((_ci if _ci is not None else 0), n - 1 - _N)
+        for _i in range(n - 1, _lo - 1, -1):
+            _b = _cd[_i]
+            _hit = [f for f in _cands if _b.low <= f["top"] and _b.high >= f["bottom"]]
+            if not _hit:
+                continue
+            _f = _hit[-1]
+            _li = int(_f["idx"]) - 1
+            if not (0 <= _li < n):
+                continue
+            _lc = _cd[_li]
+            px = _b.close
+            if _dir == "long":
+                sl = _lc.low * (1 - C.SL_BUFFER_PCT); risk = px - sl
+            else:
+                sl = _lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
+            if risk <= 0:
+                continue
+            if str(getattr(C, "TP_MODE", "pct")).lower() == "pct":
+                _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
+                tp, _src = (px * (1 + _pp) if _dir == "long" else px * (1 - _pp)), "pct"
+            else:
+                _rr = float(C.TP_RR)
+                tp, _src = (px + _rr * risk if _dir == "long" else px - _rr * risk), "rr"
+            rr = abs(tp - px) / max(risk, 1e-9)
+            steps["cfvg"] = {"dir": _dir, "choch_idx": _ci,
+                             "fvg": (round(float(_f["bottom"]), 2), round(float(_f["top"]), 2)),
+                             "tp_src": _src, "RR": round(rr, 2)}
+            _rz = (f"{'▼' if _dir == 'short' else '▲'}反向FVG(反转) | 损{sl:.1f} 标{tp:.1f} "
+                   f"(TP={_src} · RR1:{rr:.1f})")
+            return EntrySignal(_dir, px, sl, tp, _rz, steps, "high" if rr >= 2 else "normal", 1)
+        steps["cfvg"] = "未回踩反向FVG"; return None
 
     def _ifvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
         """★2026-10-06 按视频《IFVG的正确用法(BV1537DzfEq8)》: IFVG 反转入场
