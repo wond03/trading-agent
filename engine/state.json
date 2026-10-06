@@ -421,8 +421,8 @@
  "fail_streak": 0,
  "pending_entries": [],
  "weex_leverage": {
-  "BTC-USDT-SWAP": 25.0,
-  "XAU-USDT-SWAP": 25.0
+  "BTC-USDT-SWAP": 50.0,
+  "XAU-USDT-SWAP": 50.0
  },
  "broker": "weex",
  "pushed_fp": {
