@@ -181,10 +181,22 @@ ENTRY_DIR_SOURCE = "1h"
 #         BOS/CHoCH 结构】作背书(不是门槛链, 只是"这根 FVG 有结构背景"的筛子)。
 #   方向: 看涨缺口(bull FVG)→做多提示; 看跌缺口(bear FVG)→做空提示。
 #   止损: FVG 左侧那根K线极值外侧(沿用现行); 止盈: 沿用全局 TP_MODE(现为固定±1%)。
-SIGNAL_MODE = "fvg_touch"     # "chain"=旧四步链 / "fvg_touch"=15m FVG 回踩提示(现行)
+SIGNAL_MODE = "fvg_handover"  # "chain"=旧四步链 / "fvg_touch"=15m FVG 回踩提示 / "fvg_handover"=缺口交接(现行)
 FVGT_REQUIRE_STRUCT = True    # 方案2: 需最近 N 根内出现过 BOS/CHoCH(结构背书)
 FVGT_STRUCT_WINDOW = 8        # 结构须落在最近 N 根 15m 内
 FVGT_MAX_CAND = 4             # 同一时刻最多取最近 N 根未回填 FVG 作为候选(取最近那根)
+
+# ---------- ★2026-10-07 用户读图口径: 【缺口交接 → 回踩顺势缺口】(SIGNAL_MODE="fvg_handover") ----------
+#   用户原话: "出现了choch我没有着急入场, 在看价格行为; FVG有多个出现, 多FVG把空FVG打掉了,
+#             然后回踩了多FVG, 随后价格开始上涨; 出现choch之后也确实出现了fvg"。
+#   含义: 入场依据不是"哪根缺口被碰到", 而是【反向缺口被实体收盘打掉(=缺口交接)】
+#         → 方向由"哪一侧赢了"给出 → 再等价格【回踩交接后新生成的顺势缺口】。
+#   数据源: engine/liquidity.py 的 ifvg_events(反向缺口被实体收盘穿越) —— 与"收盘穿破"口径天然一致。
+#   实现: engine/entry.py::_fvg_handover_signal
+FVGH_MAX_AGE_BARS = 12       # 交接事件须落在最近 N 根 15m 内
+FVGH_MAX_BARS_AFTER = 8      # 顺势缺口须在交接发生后 N 根内生成
+FVGH_REQUIRE_CHOCH = False   # 是否额外要求最近出现过 CHoCH(默认关: 用户实例中引擎认不到他手画的CHoCH)
+FVGH_CHOCH_WINDOW = 12
 
 # ---------- ★2026-10-06 用户想法: BOS/CHoCH 产生的 FVG 都有价值(含【反向FVG】) ----------
 #   用户原话要点: ① BOS 不代表价格继续; ② 后续跌破该段最近低点 → 转 CHoCH(方向反转), 伴随的 FVG 可入场;
