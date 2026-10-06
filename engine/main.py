@@ -1297,8 +1297,12 @@ def run_once():
         _save_and_sync_daily(_rep, now_bj)      # ★P3-11: 落盘仓库 + best-effort 同步知识库
         state["daily_report_date"] = today
 
+    # ---- ★2026-10-07 用户裁定: 静默时段(北京时 05:00-07:00) —— 引擎照常运行/记录, 但不发任何消息 ----
+    _qh = getattr(C, "QUIET_HOURS_BJ", None)
+    _quiet = bool(_qh) and (_qh[0] <= now_bj.hour < _qh[1])
+
     # ---- 推送策略: 有实质内容才推; 无内容静默 ----
-    if reports:
+    if reports and not _quiet:
         _order = ["哨兵", "铁律", "巡检"]
         _blk = {}
         for _c, _t in reports:
@@ -1310,11 +1314,17 @@ def run_once():
                 _parts.append(f"**【{_c}】**")
                 _parts.extend(_blk[_c])
         push("\n\n".join(_parts))
+    elif reports and _quiet:
+        print(f"=== 静默时段({_qh[0]:02d}:00-{_qh[1]:02d}:00 北京): 本有 {len(reports)} 条待推, 按设置不推送 ===")
     else:
         print(f"=== 静默(无新信号) {now_bj.strftime('%m-%d %H:%M')} ===")
 
     # ---- 图表推送(裁定A: 只在 信号/开仓/平仓 时登记) ★文字先发, 图后发 ----
-    flush_charts(client)
+    if _quiet:
+        _PENDING_CHARTS.clear()     # 静默时段不补发图表(避免迟到/错时)
+        print("[画图] 静默时段 → 本轮不推送图表")
+    else:
+        flush_charts(client)
 
     state["history"] = state.get("history", [])[-100:]   # 历史保留最近100条
     state["market_snapshot"] = market_notes               # 供日报展示
