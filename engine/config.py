@@ -141,6 +141,23 @@ FVG_FILLED_FILTER = False     # 是否启用"实体填补(Filled Gap)"过滤 (�
 FVG_FILLED_MODE = "prior"     #   "prior"  = 触发那根【之前】已有实体进入 → 判为 Filled Gap 剔除
                               #   "strict" = 更严: 连触发那根本身也必须是纯影线穿刺(实体不得进入)
 
+# ---------- ★2026-10-06 按视频《为什么你用ICT策略总止损?——(2)IFVG的正确用法》(BV1537DzfEq8) ----------
+#   IFVG 反转入场: 顺势 FVG 被【反向实体收盘穿越】后, 角色反转成反向入场区。
+#   视频三条件: ①左侧 Market Maker Model 走完(原始盘整+≥2次冲击→清扫流动性)
+#               ②左侧留有未被扫掉的 Failure Swing 流动性(≈"未被扫掉的摆动极值")
+#               ③只认"清扫段最后一根" IFVG 的反转
+#   周期: 不用 1m, 至少 3/5/15m(我方入场周期=15m, 天然满足)
+#   入场: 反转蜡烛实体 50%(CE)/25% 挂限价; 止损: 反转蜡烛极值外侧; 止盈: 被清扫的原始盘整高/低点
+#   实现位置: engine/liquidity.py 生成 ifvg_events; engine/entry.py::_ifvg_signal 判入场。
+IFVG_MODE = "off"             # "off"=仅FVG(现行) / "add"=FVG无信号时补一个IFVG反转 / "only"=仅IFVG反转
+IFVG_MAX_AGE_BARS = 8         # 反转蜡烛距当前最多 N 根 15m 内(且须早于当前那根 = 有回踩空间)
+IFVG_REQUIRE_HTF_ALIGN = True # 反转方向须与 1H 结构方向一致
+IFVG_REQUIRE_SWEEP = True     # 条件①: 反转蜡烛之前须发生过"同向清扫"(bull反转需前置 down sweep)
+IFVG_SWEEP_WINDOW = 30        #   清扫须发生在反转蜡烛前 N 根内
+IFVG_REQUIRE_FAIL = True      # 条件②: 须存在未被扫掉的摆动极值(=止盈目标), 无则不进场
+IFVG_CE_LEVEL = 0.5           # 入场位: 反转蜡烛实体 0.5(CE) / 0.25
+IFVG_TP_MODE = "liq"          # 止盈: "liq"=未被扫掉的摆动极值(被清扫的原始盘整高/低点) / "pct" / "rr"
+
 # ---------- ★2026-10-05 按用户笔记《BOS和CHOCH概念》补: Internal 结构确认 ----------
 #   笔记"实战配置逻辑(专业用法)": ①Swing结构定方向 → ②等 Internal CHoCH(微观逆势转变=回调结束)
 #   → ③等 Internal BOS(顺势突破=延续确认, 笔记称 "First BOS") → 才进场。
