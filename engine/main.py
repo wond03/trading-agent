@@ -169,6 +169,8 @@ def why_no_signal(ee):
         return f"无信号: {st.get('fvgt')}"
     if "fvgh" in st and not isinstance(st.get("fvgh"), dict):     # ★新模型(SIGNAL_MODE=fvg_handover)
         return f"无信号: {st.get('fvgh')}"
+    if "fvgb" in st and not isinstance(st.get("fvgb"), dict):     # ★新模型(SIGNAL_MODE=fvg_both)
+        return f"无信号: {st.get('fvgb')}"
     if not st.get("htf_trend"):
         return "卡① 背景: 1H 结构方向未确立"
     _it = st.get("internal")
