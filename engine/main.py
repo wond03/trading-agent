@@ -856,7 +856,7 @@ def run_once():
         #     symbol/positionSide → 两者恒为 None → _lp.get((None,None))=0 → 每轮把交易所上
         #     【所有】条件单都撤掉(含用户手动挂的、也含引擎自己刚挂的)。
         #     现改为: 先经 client.algo_key(row) 正确归属; **认不出归属 → 一律不撤**(失败安全)。
-        if getattr(client, "supports_algo", True):
+        if getattr(client, "supports_algo", True) and bool(getattr(C, "ALGO_CLEANUP_ORPHANS", False)):
             _akey = getattr(client, "algo_key", None)
             try:
                 for _a in (client.get_algo_pending().get("data") or []):
