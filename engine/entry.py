@@ -38,6 +38,10 @@ class EntryEngine:
             _t = getattr(ltf_se, "trend", None)
             if _t in ("up", "down"):
                 htf_trend = _t
+        if str(getattr(C, "SIGNAL_MODE", "chain")).lower() == "fvg_touch":
+            steps = {}
+            self.last_steps = steps
+            return self._fvg_touch_signal(se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps)
         _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
         _cm = str(getattr(C, "FVG_COUNTER_MODE", "off")).lower()
         if _mode == "only":
@@ -62,6 +66,67 @@ class EntryEngine:
                 self.last_steps = steps
                 return _s2
         return sig
+
+    def _fvg_touch_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
+        """★2026-10-07 用户裁定「可以」: 【15m FVG 回踩提示】(方案2)
+           触发 = 最新一根 15m 新回踩进一个未回填的 15m FVG(上一根不在其中 = 新触及);
+           方向 = FVG 方向(bull→做多 / bear→做空);
+           背书 = 最近 N 根内出现过 BOS/CHoCH(仅作筛子, 不是四步门槛链);
+           止损 = FVG 左侧那根K线极值外侧; 止盈 = 全局 TP_MODE。
+        """
+        _le = ltf_le if ltf_le is not None else le
+        _se = ltf_se if ltf_se is not None else se
+        _cd = ltf_candles
+        if _le is None or not _cd or len(_cd) < 6:
+            steps["fvgt"] = "无15m数据"; return None
+        n = len(_cd)
+        bar, prev = _cd[n - 1], _cd[n - 2]
+        cands = []
+        for f in (getattr(_le, "fvgs", []) or []):
+            if f.get("filled") or f.get("idx") is None:
+                continue
+            if not (bar.low <= f["top"] and bar.high >= f["bottom"]):
+                continue                                    # 本根未触及
+            if prev.low <= f["top"] and prev.high >= f["bottom"]:
+                continue                                    # 上一根已在缺口里 → 非"新回踩"
+            cands.append(f)
+        cands = sorted(cands, key=lambda x: int(x["idx"]))[-int(getattr(C, "FVGT_MAX_CAND", 4)):]
+        steps["fvgt_n"] = len(cands)
+        if not cands:
+            steps["fvgt"] = "本根未新回踩进FVG"; return None
+        if getattr(C, "FVGT_REQUIRE_STRUCT", True):         # 结构背书(方案2)
+            _W = int(getattr(C, "FVGT_STRUCT_WINDOW", 8))
+            _evs = [e for e in (getattr(_se, "events", []) or [])
+                    if 0 <= n - 1 - int(e[0]) <= _W]
+            if not _evs:
+                steps["fvgt"] = f"最近{_W}根内无BOS/CHoCH结构(无背书)"; return None
+            steps["fvgt_evt"] = [e[1] for e in _evs[-2:]]
+        f = cands[-1]                                       # 取最近生成的那根
+        d = "long" if f["kind"] == "bull" else "short"
+        px = bar.close
+        _li = int(f["idx"]) - 1
+        lc = _cd[_li] if 0 <= _li < n else None
+        if lc is None:
+            steps["fvgt"] = "缺FVG左根K线"; return None
+        if d == "long":
+            sl = lc.low * (1 - C.SL_BUFFER_PCT); risk = px - sl
+        else:
+            sl = lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
+        if risk <= 0:
+            steps["fvgt"] = "几何无效(price已在缺口外)"; return None
+        if str(getattr(C, "TP_MODE", "pct")).lower() == "pct":
+            _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
+            tp, _src = (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct"
+        else:
+            _rr = float(C.TP_RR)
+            tp, _src = (px + _rr * risk if d == "long" else px - _rr * risk), "rr"
+        rr = abs(tp - px) / max(risk, 1e-9)
+        _ev = (" · 近结构 " + "/".join(steps.get("fvgt_evt") or [])) if steps.get("fvgt_evt") else ""
+        steps["fvgt"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
+                         "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
+        _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}FVG回踩(15m) · 缺口 "
+               f"{f['bottom']:.1f}~{f['top']:.1f}{_ev}")
+        return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
 
     def _counter_fvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
         """★2026-10-06 用户想法: 【反向 FVG】入场 —— "BOS 产生的 FVG 不只顺势那根有效"
