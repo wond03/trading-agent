@@ -40,14 +40,20 @@ class LiquidityEngine:
                 continue
             top, bot = float(TOP[i]), float(BOT[i])
             filled = False
+            body_entered = None                           # ★视频#2: 首个"实体进入缺口"的K线(非纯影线穿刺)
             for j in range(i + 1, n):                     # 规则B3: 实体收盘完全穿过 → 失效
-                if F[i] == 1 and candles[j].close < bot:
+                _b = candles[j]
+                if body_entered is None and j >= i + 2:   # i+1 是形成缺口的第3根, 从 i+2 起才算"回踩进入"
+                    _blo, _bhi = (_b.open, _b.close) if _b.open <= _b.close else (_b.close, _b.open)
+                    if _bhi >= bot and _blo <= top:       # 实体(开收区间)与缺口重叠 = 实体进入
+                        body_entered = j
+                if F[i] == 1 and _b.close < bot:
                     filled = True; break
-                if F[i] == -1 and candles[j].close > top:
+                if F[i] == -1 and _b.close > top:
                     filled = True; break
             out.append({"idx": i, "kind": "bull" if F[i] == 1 else "bear",
                         "top": top, "bottom": bot, "filled": filled, "covered": filled,
-                        "born_idx": i, "entered_idx": None})
+                        "born_idx": i, "entered_idx": None, "body_entered_idx": body_entered})
             self.events.append((i, "FVG_bull" if F[i] == 1 else "FVG_bear", bot, top))
         self.fvgs = [f for f in out if not f["filled"] and (n - 1 - f["idx"]) <= 100]
 
