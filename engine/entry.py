@@ -293,6 +293,27 @@ class EntryEngine:
                 continue                                          # 本根未探进缺口
             if any(_pen(_cd[k], f) for k in range(_fi + 1, n - 1)):
                 continue                                          # 之前已探进过 → 非"首次回踩"
+            # ★用户理由②: 回踩必须是【影线】探进缺口, 实体压进缺口 = 真卖/买压 → 不做
+            if getattr(C, "FVGB_WICK_ONLY", True):
+                _bl, _bh = min(bar.open, bar.close), max(bar.open, bar.close)
+                if f["kind"] == "bull" and _bl <= float(f["top"]):
+                    continue
+                if f["kind"] == "bear" and _bh >= float(f["bottom"]):
+                    continue
+            # ★用户理由①: 入场前出现"长上影"(多)/"长下影"(空) = 被拒绝 → 不做
+            if getattr(C, "FVGB_REJECT_LONG_WICK", True):
+                _r = float(getattr(C, "FVGB_WICK_RATIO", 1.5))
+                _mp = float(getattr(C, "FVGB_WICK_MIN_PCT", 0.08)) / 100.0
+                _bad = False
+                for k in range(_fi + 1, n):
+                    b = _cd[k]
+                    _th = max(_r * abs(b.close - b.open), _mp * b.close)
+                    if f["kind"] == "bull" and (b.high - max(b.open, b.close)) >= _th:
+                        _bad = True; break
+                    if f["kind"] == "bear" and (min(b.open, b.close) - b.low) >= _th:
+                        _bad = True; break
+                if _bad:
+                    continue
             hit.append(f)
         steps["fvgb_n"] = len(hit)
         if not hit:
