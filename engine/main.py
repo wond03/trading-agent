@@ -850,13 +850,29 @@ def run_once():
                 add("巡检", f"🛡️ **接管交易所游离持仓 · {_nmx} {_dirx.upper()}**\n"
                              f"> {_sz}张 @{_epx:,.1f}（交易所均价）· 杠杆 {_levx}x\n"
                              f"> {_ptxt}" + ("" if not _erlx else f"\n> ⚠️ 交易所回执：{'；'.join(_erlx)}"))
-        # 顺带清理"无持仓"的孤立止盈/止损挂单(仅支持独立条件单的交易所; WEEX 无此接口)
+        # 顺带清理"无持仓"的孤立止盈/止损挂单
+        #   ★★2026-10-07 修复(用户反馈: 手动设的止盈止损被每轮撤销):
+        #     旧代码直接读 _a["instId"]/["posSide"] —— 那是【OKX】的字段；WEEX 条件单只有
+        #     symbol/positionSide → 两者恒为 None → _lp.get((None,None))=0 → 每轮把交易所上
+        #     【所有】条件单都撤掉(含用户手动挂的、也含引擎自己刚挂的)。
+        #     现改为: 先经 client.algo_key(row) 正确归属; **认不出归属 → 一律不撤**(失败安全)。
         if getattr(client, "supports_algo", True):
+            _akey = getattr(client, "algo_key", None)
             try:
                 for _a in (client.get_algo_pending().get("data") or []):
-                    if _lp.get((_a.get("instId"), _a.get("posSide")), 0) <= 0:
-                        client.cancel_algo(_a.get("instId"), _a.get("algoId"))
-                        print(f"[清理孤立挂单] {_a.get('instId')} {_a.get('algoId')}")
+                    if callable(_akey):
+                        _ki, _ks = _akey(_a)
+                    else:
+                        _ki = _a.get("instId")
+                        _ks = (str(_a.get("posSide")).lower() if _a.get("posSide") else None)
+                    if not _ki or not _ks:
+                        print(f"[孤立挂单] 归属认不出 → 跳过不撤 | {str(_a)[:160]}")
+                        continue
+                    if _lp.get((_ki, _ks), 0) <= 0:
+                        client.cancel_algo(_ki, _a.get("algoId"))
+                        print(f"[清理孤立挂单] {_ki} {_a.get('algoId')}")
+                    else:
+                        print(f"[孤立挂单] {_ki} {_ks} 有持仓 → 保留保护单 {_a.get('algoId')}")
             except Exception as e:
                 print(f"[孤立挂单清理异常] {e}")
 
