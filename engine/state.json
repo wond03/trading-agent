@@ -1,15 +1,33 @@
 {
- "positions": [],
+ "positions": [
+  {
+   "inst": "BTC-USDT-SWAP",
+   "direction": "long",
+   "entry": 85901.8,
+   "sl": 85688.83415,
+   "sl0": 85688.83415,
+   "tp": 86433.33170000001,
+   "size": 0.0014,
+   "ratio": 1.0,
+   "risk_free": false,
+   "tp1_hit": false,
+   "leverage": 25.0,
+   "profile": "1-15",
+   "run_id": 1791250252.986983,
+   "opened": 1791250257,
+   "liq_px": 82713.8
+  }
+ ],
  "daily": {
   "date": "2026-10-06",
-  "trades": 0,
+  "trades": 1,
   "by_profile": {
-   "1-15": 0
+   "1-15": 1
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791249354.693281,
- "run_count_today": 33,
+ "last_run_ts": 1791250252.986983,
+ "run_count_today": 34,
  "history": [
   {
    "type": "signal",
@@ -381,6 +399,12 @@
    "entry": 86280.0,
    "exit": 85679.1,
    "detail": "[1-15] BTC LONG -3.43U(交易所端)"
+  },
+  {
+   "type": "signal",
+   "ts": 1791250258.2629528,
+   "profile": "1-15",
+   "detail": "BTC做多 · 进85,937 损85,689 标86,433 · RR1:2"
   }
  ],
  "pushed_signals": [
@@ -411,12 +435,6 @@
  },
  "broker": "weex",
  "pushed_fp": {
-  "1-15|BTC-USDT-SWAP|long|fvg85270.7_85284.0": 1791135584.0056198,
-  "1-15|XAU-USDT-SWAP|short|fvg4138.2_4139.1": 1791135585.1632707,
-  "1-15|XAU-USDT-SWAP|short|fvg4139.0_4140.1": 1791140470.5179665,
-  "1-15|BTC-USDT-SWAP|long|fvg85321.8_85341.1": 1791142277.188002,
-  "1-15|BTC-USDT-SWAP|long|fvg85744.1_85746.9": 1791148549.793365,
-  "1-15|BTC-USDT-SWAP|long|fvg86028.2_86199.9": 1791153064.8343372,
-  "1-15|XAU-USDT-SWAP|long|fvg4141.4_4142.5": 1791154865.2131617
+  "1-15|BTC-USDT-SWAP|long|fvg85852.8_85872.3": 1791250258.2629573
  }
 }
