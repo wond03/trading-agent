@@ -321,24 +321,75 @@ class EntryEngine:
         f = sorted(hit, key=lambda x: int(x["idx"]))[-1]
         d = "long" if f["kind"] == "bull" else "short"
         px = bar.close
-        _li = int(f["idx"]) - 1
-        lc = _cd[_li] if 0 <= _li < n else None
-        if lc is None:
-            steps["fvgb"] = "缺FVG左根K线"; return None
-        if d == "long":
-            sl = lc.low * (1 - C.SL_BUFFER_PCT); risk = px - sl
+        _stop_src = "缺口左根K线极值"
+        if str(getattr(C, "STOP_MODE", "fvg_left")).lower() == "key":
+            _ks, _stop_src = self._key_stop(d, px, _se, _cd, _le)
+            if _ks is None:                                  # ★口径③: 找不到合格止损位 → 这笔不做
+                steps["fvgb"] = f"止损无可靠位 → 不做（{_stop_src}）"; return None
+            sl = _ks * (1 - C.SL_BUFFER_PCT) if d == "long" else _ks * (1 + C.SL_BUFFER_PCT)
         else:
-            sl = lc.high * (1 + C.SL_BUFFER_PCT); risk = sl - px
+            _li = int(f["idx"]) - 1
+            lc = _cd[_li] if 0 <= _li < n else None
+            if lc is None:
+                steps["fvgb"] = "缺FVG左根K线"; return None
+            sl = lc.low * (1 - C.SL_BUFFER_PCT) if d == "long" else lc.high * (1 + C.SL_BUFFER_PCT)
+        risk = (px - sl) if d == "long" else (sl - px)
         if risk <= 0:
             steps["fvgb"] = "几何无效(price已在缺口外)"; return None
         tp, _src = self._resolve_tp(d, px, risk, _se)
         rr = abs(tp - px) / max(risk, 1e-9)
         steps["fvgb"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
-                         "mode": "两侧独立(缺口未被反向接管)",
+                         "mode": "两侧独立(缺口未被反向接管)", "stop_src": _stop_src,
                          "sl": round(sl, 2), "tp": round(tp, 2), "tp_src": _src, "RR": round(rr, 2)}
         _rz = (f"{'▲ 看涨' if d == 'long' else '▼ 看跌'}缺口回踩(两侧独立) "
                f"{f['bottom']:.1f}~{f['top']:.1f}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
+
+    def _key_stop(self, d, px, ltf_se, cd, le):
+        """★2026-10-07 用户口径③: 止损 = 【本段关键极值】—— 且该位必须还"有效"。
+        规则(按用户 03:15 那笔的三条否决理由):
+          ①候选 = 最近【未被再测过】的摆动极值(多=L / 空=H);
+          ②距离必须 ∈ [STOP_MIN_PCT, STOP_MAX_PCT](太近/太远都不做);
+          ③该位附近若存在【已被回踩过】的缺口(±STOP_SPENT_ZONE_PCT) → "撑不住", 不认;
+          ④无合格位 → 返回 None ⇒ 这笔直接不提示。
+        返回 (止损价, 说明) 或 (None, 原因)
+        """
+        n = len(cd)
+        _smin = float(getattr(C, "STOP_MIN_PCT", 0.2)) / 100.0
+        _smax = float(getattr(C, "STOP_MAX_PCT", 0.5)) / 100.0
+        _zone = float(getattr(C, "STOP_SPENT_ZONE_PCT", 0.15)) / 100.0
+        if d == "long":
+            _lo, _hi = px * (1 - _smax), px * (1 - _smin)
+        else:
+            _lo, _hi = px * (1 + _smin), px * (1 + _smax)
+        # 已被回踩过的缺口(价格触及过) —— 用来剔除"旁边有被用掉的缺口"的极值位
+        spent = []
+        for ev in (getattr(le, "events", []) or []):
+            if not str(ev[1]).startswith("FVG"):
+                continue
+            gi, gb, gt = int(ev[0]), float(ev[2]), float(ev[3])
+            if gi >= n - 1:
+                continue
+            if any(cd[k].low <= gt and cd[k].high >= gb for k in range(gi + 2, n)):
+                spent.append((gb, gt))
+        out = []
+        for idx, kind, lvl in (getattr(ltf_se, "swings", []) or []):
+            if (d == "long" and kind != "L") or (d == "short" and kind != "H"):
+                continue
+            if idx >= n - 1 or (n - 1 - idx) > int(getattr(C, "STOP_SWING_N", 60)):
+                continue
+            if not (_lo <= lvl <= _hi):
+                continue
+            _tol = 0.0005
+            if any((d == "long" and cd[k].low <= lvl * (1 + _tol)) or
+                   (d == "short" and cd[k].high >= lvl * (1 - _tol)) for k in range(idx + 1, n)):
+                continue                          # 已经被再测过 → 这个位不算数
+            if any(gb * (1 - _zone) <= lvl <= gt * (1 + _zone) for gb, gt in spent):
+                continue                          # 附近有"已被回踩过"的缺口 → 撑不住
+            out.append(lvl)
+        if not out:
+            return None, "没有'未被再测、周围也没被缺口消费过'的关键位"
+        return min(out, key=lambda x: abs(x - px)), "本段关键极值(未被再测)"
 
     def _counter_fvg_signal(self, se, le, ltf_se, ltf_le, ltf_candles, htf_trend, steps):
         """★2026-10-06 用户想法: 【反向 FVG】入场 —— "BOS 产生的 FVG 不只顺势那根有效"
