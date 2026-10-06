@@ -210,6 +210,9 @@ FVGT_MAX_CAND = 4             # 同一时刻最多取最近 N 根未回填 FVG �
 #   实现: engine/entry.py::_fvg_handover_signal
 FVGH_MAX_AGE_BARS = 12       # 交接事件须落在最近 N 根 15m 内
 FVGH_MAX_BARS_AFTER = 8      # 顺势缺口须在交接发生后 N 根内生成
+FVGH_TAKEOVER = True         # ★2026-10-07 用户口径B: 缺口【接管】也算交接
+                             #   (后生成的反向缺口覆盖/重叠同区域的前一个缺口 → 交接, 方向=后来者)
+                             #   用户实例: 02:45 多缺口4168.1~4172.4 被 03:15 空缺口4170.6~4172.4 接管 → 做空
 FVGH_REQUIRE_CHOCH = False   # 是否额外要求最近出现过 CHoCH(默认关: 用户实例中引擎认不到他手画的CHoCH)
 FVGH_CHOCH_WINDOW = 12
 
