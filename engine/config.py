@@ -196,7 +196,7 @@ ENTRY_DIR_SOURCE = "1h"
 #         BOS/CHoCH 结构】作背书(不是门槛链, 只是"这根 FVG 有结构背景"的筛子)。
 #   方向: 看涨缺口(bull FVG)→做多提示; 看跌缺口(bear FVG)→做空提示。
 #   止损: FVG 左侧那根K线极值外侧(沿用现行); 止盈: 沿用全局 TP_MODE(现为固定±1%)。
-SIGNAL_MODE = "fvg_handover"  # "chain"=旧四步链 / "fvg_touch"=15m FVG 回踩提示 / "fvg_handover"=缺口交接(现行)
+SIGNAL_MODE = "fvg_both"      # "chain"=旧四步链 / "fvg_touch"=FVG回踩 / "fvg_handover"=缺口交接定向 / "fvg_both"=★两侧独立(现行)
 FVGT_REQUIRE_STRUCT = True    # 方案2: 需最近 N 根内出现过 BOS/CHoCH(结构背书)
 FVGT_STRUCT_WINDOW = 8        # 结构须落在最近 N 根 15m 内
 FVGT_MAX_CAND = 4             # 同一时刻最多取最近 N 根未回填 FVG 作为候选(取最近那根)
