@@ -152,11 +152,12 @@ def format_signal(inst_id, sig, size, sl_use=None, liq=None, prof_label=""):
          f"**盈亏比** 1 : {rr:.1f}"]
     if liq:
         L.append(f"**爆仓价** {fmt_price(liq)}")
+    _szl = "下单" if not DRY_RUN else "参考仓位"
     L += ["───────────────",
           f"**依据** {simplify_reason(sig.reason)}",
-          f"**下单** {size['lots']}张 · {size['notional']:.0f}U名义 · 保证金{size['margin']:.1f}U · {size['leverage']}倍"]
+          f"**{_szl}** {size['lots']} · {size['notional']:.0f}U名义 · 保证金{size['margin']:.1f}U · {size['leverage']}倍"]
     if DRY_RUN:
-        L += ["", "> 模拟观察，未实际下单"]
+        L += ["", "> 🔔 **只提示 · 不自动下单** —— 是否进场由你决定"]
     return "\n".join(L)
 
 
