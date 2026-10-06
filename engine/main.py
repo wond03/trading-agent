@@ -624,7 +624,7 @@ def _last_realized(client, inst_id, pos_side, entry=None, size=None, direction=N
 
 def run_once():
     state = load_state()
-    print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=两级别(1H+15m)+开仓当根不判出场")
+    print(f"[暗夜猎手 v3] 周期链={list(PROFILES)} DRY_RUN={DRY_RUN} 特性=只看15m(1H已撤掉)+开仓当根不判出场")
     print(f"[数据源] 信号/回测 = WEEX 合约 ({weex_client.HOST}) | 交易 = WEEX 模拟盘(paper) | DRY_RUN={DRY_RUN}")
     now_bj = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)
     # 节流: 距上次运行<25分钟则跳过 (配合cron-job.org每30分钟触发, 控制Actions额度)
