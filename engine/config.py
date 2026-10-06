@@ -54,6 +54,13 @@ WEEX_LEVERAGE = {"BTC-USDT-SWAP": 50, "XAU-USDT-SWAP": 50}
 # ★2026-10-04: 是否接管"交易所有仓但本地无记录"的游离持仓。
 #   默认 False —— 模拟盘账户你本人也可能手动下单, 引擎不擅自接管别人的仓(只在推送里提醒)。
 ADOPT_ORPHANS = False
+# ★★2026-10-07 事故修复(用户反馈"手动设的止盈止损被每轮撤销"):
+#   主因是 main.py 的"清理无持仓孤立挂单"误读了 OKX 字段(instId/posSide) → WEEX 下恒取到 None
+#   → 每轮把交易所上【所有】条件单都撤掉(含你手动挂的)。已修正字段映射 + 认不出归属一律不撤。
+#   下面这个开关是第二道保险: **默认关闭** —— 引擎不再主动撤销任何条件单
+#   (交易所会在仓位平掉时自行清理; 引擎自身的保护单由"读回自检/自愈补挂"管理)。
+#   要恢复"自动清理孤立挂单"只需把此项设为 True(此时仍只撤"确认无持仓"的单)。
+ALGO_CLEANUP_ORPHANS = False
 # 交易对映射(内部品种名 → 模拟盘下单符号): 见 engine/weex_trade.SYMBOL_MAP
 #   BTC-USDT-SWAP → BTCSUSDT ; XAU-USDT-SWAP → XAUTSUSDT(黄金是 XAUT)
 LIQ_BUFFER_PCT = 0.003      # [工] 仅用于"孤儿仓保命止损": 在【交易所返回的爆仓价】内 0.3% 处挂止损
