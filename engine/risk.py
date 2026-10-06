@@ -16,13 +16,31 @@ class RiskManager:
     # ---------- 五条件 AND 门 (规则F1) ----------
     def check_gates(self, signal, all_conditions=None):
         """返回 (通过: bool, 明细: list[str])
-        当前条件(2026-10-04): ①背景方向(1H结构BOS/CHoCH) ②15m 回踩顺势FVG —— 严格AND"""
+        ★2026-10-07 修正: 按【当前信号模型】取条件。
+           旧代码固定读 steps["htf_trend"] / ["trigger"](都是旧四步链的键), 换到 fvg_touch /
+           fvg_handover 之后这两个键根本不存在 → 恒判 ❌ → **每一个真信号都被误报成
+           "信号被风控拦截"**, 而且因为走了拦截分支, 信号本身(进场/止损/目标)还推不出来。"""
         detail, ok = [], True
         s = signal.steps
-        cond = {
-            "①背景方向": bool(s.get("htf_trend")),
-            "②15m FVG回踩入场": bool(s.get("trigger")),
-        }
+        mode = str(getattr(C, "SIGNAL_MODE", "chain")).lower()
+        if mode == "fvg_handover":
+            _d = s.get("fvgh") if isinstance(s.get("fvgh"), dict) else {}
+            cond = {
+                "①缺口交接(反向缺口被实体收盘打掉)": bool(_d.get("handover")),
+                "②回踩顺势缺口": bool(_d.get("fvg")),
+                "③止损/止盈已算出": bool(_d.get("sl")) and bool(_d.get("tp")),
+            }
+        elif mode == "fvg_touch":
+            _d = s.get("fvgt") if isinstance(s.get("fvgt"), dict) else {}
+            cond = {
+                "①15m FVG回踩": bool(_d.get("fvg")),
+                "②止损/止盈已算出": bool(_d.get("sl")) and bool(_d.get("tp")),
+            }
+        else:
+            cond = {
+                "①背景方向": bool(s.get("htf_trend")),
+                "②15m FVG回踩入场": bool(s.get("trigger")),
+            }
         if all_conditions:
             cond.update(all_conditions)
         for k, v in cond.items():
