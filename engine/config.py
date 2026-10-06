@@ -17,13 +17,16 @@ INST_SPECS = {
 
 # ---------- 周期链 (2026-10-04 用户裁定: 三个级别太多 → 两个级别 1H + 15m) ----------
 # 1H 定趋势/找截取/反转预警 → 15m 回踩FVG/入场
-BASE_TF = "1H"        # 主分析周期(profile 会覆盖)
-HTF = "1H"            # 背景级别(定趋势、找截取)
+BASE_TF = "15m"       # ★2026-10-07 用户裁定「把 1 小时撤掉」→ 只看 15m (profile 会覆盖)
+HTF = "15m"           # 背景级别 = 15m 自身(不再用 1H)
 STRATEGY_PROFILES = {
-    "1-15": {"label": "1-15", "base_tf": "1H", "htf": "1H", "ltf": "15m",
-             "swing_left": 4, "swing_right": 4,          # ★2026-10-04: 2 → 4 (与 SWING_LEFT/RIGHT 对齐)
-             "swing_htf": 10, "swing_ltf": 4},           # ★2026-10-05: 分层(笔记建议 高周期10~15/低周期2~5); 实测 10 最优
+    "15": {"label": "15m", "base_tf": "15m", "htf": "15m", "ltf": "15m",
+           "swing_left": 4, "swing_right": 4,
+           "swing_htf": 10, "swing_ltf": 4},
 }
+#   ★2026-10-07 用户裁定「把一小时撤掉」: 周期链由 1H+15m → 【只看 15m】。
+#     方向/背景/入场全部在 15m 上判定(原 1H 的方向门去掉)。若之后想换回/换成 4H:
+#     只需改本 dict 的 base_tf/htf(或 env ENTRY_DIR_SOURCE), 其余链路不动。
 
 # ---------- 仓位模式(用户指定): 固定保证金 × 固定杠杆 ----------
 MARGIN_PER_TRADE = 5.0      # 每单保证金 5 USDT
