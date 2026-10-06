@@ -32,7 +32,12 @@ class EntryEngine:
            "off"  = 仅 FVG 回踩模型(现行)
            "add"  = FVG 无信号时, 再用 IFVG 反转模型补一个信号(增量, 不改现有信号)
            "only" = 只用 IFVG 反转模型
+        ★2026-10-06: 方向来源由 C.ENTRY_DIR_SOURCE 决定("1h"=现行 / "15m"=只看15m)
         """
+        if str(getattr(C, "ENTRY_DIR_SOURCE", "1h")).lower() in ("15m", "ltf"):
+            _t = getattr(ltf_se, "trend", None)
+            if _t in ("up", "down"):
+                htf_trend = _t
         _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
         if _mode == "only":
             steps = {}
