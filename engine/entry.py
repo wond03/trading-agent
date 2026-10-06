@@ -282,8 +282,18 @@ class EntryEngine:
                     return True
             return False
 
+        _choch = None
+        if getattr(C, "FVGB_REQUIRE_CHOCH", False):               # ★可选背景条件: 近期须出现【反向 CHoCH】
+            _W = int(getattr(C, "FVGB_CHOCH_WINDOW", 12))
+            _choch = {str(e[1]) for e in (getattr(_se, "events", []) or [])
+                      if 0 <= n - 1 - int(e[0]) <= _W and str(e[1]).startswith("CHoCH")}
+
         hit = []
         for f in _fvgs:
+            if _choch is not None:
+                _need = "CHoCH_down" if f["kind"] == "bull" else "CHoCH_up"
+                if _need not in _choch:
+                    continue                                      # 没有反向CHoCH背景 → 不做
             if _taken_over(f):
                 continue                                          # 已被反向缺口接管
             _fi = int(f["idx"])
