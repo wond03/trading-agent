@@ -158,6 +158,12 @@ IFVG_REQUIRE_FAIL = True      # 条件②: 须存在未被扫掉的摆动极值(
 IFVG_CE_LEVEL = 0.5           # 入场位: 反转蜡烛实体 0.5(CE) / 0.25
 IFVG_TP_MODE = "liq"          # 止盈: "liq"=未被扫掉的摆动极值(被清扫的原始盘整高/低点) / "pct" / "rr"
 
+# ---------- ★2026-10-06 用户提问「只看15分钟的FVG呢?」: 方向来源可切换 ----------
+#   "1h"  = 现行: 用 1H(背景级别) 结构方向定多空, 15m 回踩 FVG 入场
+#   "15m" = 只看 15m: 多空方向改用【15m 自己的结构方向】, 其余链路(15m结构确认+FVG回踩)不变
+#   (若再把 INT_REQUIRE_BOS/INT_REQUIRE_CHOCH 关掉, 就接近"纯 15m FVG")
+ENTRY_DIR_SOURCE = "1h"
+
 # ---------- ★2026-10-05 按用户笔记《BOS和CHOCH概念》补: Internal 结构确认 ----------
 #   笔记"实战配置逻辑(专业用法)": ①Swing结构定方向 → ②等 Internal CHoCH(微观逆势转变=回调结束)
 #   → ③等 Internal BOS(顺势突破=延续确认, 笔记称 "First BOS") → 才进场。
