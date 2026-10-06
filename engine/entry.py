@@ -113,11 +113,59 @@ class EntryEngine:
                       if f.get("kind") == _want and not f.get("filled")
                       and f.get("idx") is not None
                       and _leg_from <= int(f["idx"]) <= (_bo_i + 1)]
+            # ★2026-10-06 按视频《为什么你越用FVG胜率越低？》: 突破缺口不该等回踩 → 支持换取法
+            _pick = str(getattr(C, "FVG_PICK", "nearest")).lower()
+            if _pick == "exclude_newest" and len(_cands) > 1:
+                _cands = _cands[:-1]
+            elif _pick == "exclude_break":
+                _cands = [f for f in _cands if int(f["idx"]) < _bo_i]
+            elif _pick == "farthest" and _cands:
+                _cands = _cands[:1]
+            # ★② 剔除"假破形态"的 FVG(推动K线长影刺破后收回 / 次日实体反包)
+            if getattr(C, "FVG_FAKEBREAK_FILTER", False) and _cands:
+                _fr = float(getattr(C, "FVG_FAKE_WICK_RATIO", 1.0))
+                _eng = bool(getattr(C, "FVG_FAKE_ENGULF", True))
+                _keep = []
+                for _f in _cands:
+                    _j = int(_f["idx"])
+                    if not (0 <= _j < len(ltf_candles)):
+                        continue
+                    _c2 = ltf_candles[_j]
+                    _bd = max(abs(_c2.close - _c2.open), 1e-9)
+                    if _want == "bull":
+                        _fake = (_c2.high - max(_c2.open, _c2.close)) >= _fr * _bd
+                        if not _fake and _eng and _j + 1 < len(ltf_candles):
+                            _c3 = ltf_candles[_j + 1]
+                            _fake = (_c3.close < _c3.open) and (_c3.open >= _c2.close) and (_c3.close <= _c2.open)
+                    else:
+                        _fake = (min(_c2.open, _c2.close) - _c2.low) >= _fr * _bd
+                        if not _fake and _eng and _j + 1 < len(ltf_candles):
+                            _c3 = ltf_candles[_j + 1]
+                            _fake = (_c3.close > _c3.open) and (_c3.open <= _c2.close) and (_c3.close >= _c2.open)
+                    if not _fake:
+                        _keep.append(_f)
+                steps["fvg_fake_dropped"] = len(_cands) - len(_keep)
+                _cands = _keep
+            steps["fvg_pick"] = {"mode": _pick, "n_cands": len(_cands)}
             # ---- 回踩: 必须发生在 BOS 之后, 且不早于最近 N 根(笔记第4步: 不追高, 等回调) ----
+            # ★视频#2: Filled Gap(已被"实体"进入过的缺口) ≠ Tap Gap(仅影线穿刺) → 可选剔除
+            _ff = bool(getattr(C, "FVG_FILLED_FILTER", False))
+            _fm = str(getattr(C, "FVG_FILLED_MODE", "prior")).lower()
+            _ff_dropped = 0
             _lo = max(_bo_i + 1, _n - 1 - _N)
             for _i in range(_n - 1, _lo - 1, -1):
                 _bar = ltf_candles[_i]
                 _hit = [f for f in _cands if _bar.low <= f["top"] and _bar.high >= f["bottom"]]
+                if _ff and _hit:
+                    _keep_hit = []
+                    for _f in _hit:
+                        _be = _f.get("body_entered_idx")
+                        # None=从未被实体进入(最纯的 Tap Gap); > _i=实体在触发那根之后才进(仍算影线穿刺);
+                        # == _i=触发那根本身带实体进入(仅 strict 模式判否)
+                        if _be is None or _be > _i or (_be == _i and _fm != "strict"):
+                            _keep_hit.append(_f)
+                    _ff_dropped += len(_hit) - len(_keep_hit)
+                    _hit = _keep_hit
                 if _hit:
                     _fvg = _hit[-1]
                     _age = _n - 1 - _i
@@ -129,6 +177,8 @@ class EntryEngine:
                                     "born_idx": _fvg.get("born_idx") or _fvg.get("idx")}
                     steps["retrace_age"] = _age
                     break
+            if _ff:
+                steps["fvg_filled_dropped"] = _ff_dropped
             steps["leg_fvgs"] = len(_cands)
         steps["trigger"] = trigger
         if not trigger:
