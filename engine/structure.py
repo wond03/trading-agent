@@ -151,46 +151,32 @@ class StructureEngine:
             #   实测依据: 用户认的 12:30 BOS(破 11:15 低 4139.0, 位移 10.1 点/0.24%) 保留;
             #            用户不认的 07:15 CHoCH_up(破 05:30 高 4168.6, 位移 6.1 点/0.15%) 与
             #            08:15 CHoCH_down(破 06:45 低 4162.1, 位移 4.9 点/0.12%) 剔除。
-            _mp = float(getattr(C, "STRUCT_MIN_SWING_PCT", 0.20)) / 100.0
-            _lvl = float(L[i])
-            _si = next((k for k in range(n - 1, -1, -1)
-                        if abs((candles[k].high if sgn > 0 else candles[k].low) - _lvl) < 1e-3), None)
-            # 注: 库内部用 np.float32 存价位, 与 float64 直接比会"看着相等其实不等" → 必须带容差
-            if _si is not None:
-                # 与【前一个反向摆动点】比位移(不是与20根内的极值比) —— 这样才分得出
-                # "22:30 低点(0.74%)/11:15 低点(0.24%)是有结构意义的点" 与
-                # "05:30 高点(0.15%)/06:45 低点(0.16%)是噪声摆动"
-                _sw = locals().get("swings") or getattr(self, "swings", []) or []
-                _cand = [_p2 for (_i2, _k2, _p2) in _sw
-                         if _i2 < i and ((sgn > 0 and _k2 == "L") or (sgn < 0 and _k2 == "H"))]
-                if _cand and abs(_lvl - _cand[-1]) / max(_lvl, 1e-9) < _mp:
-                    continue
-            ev.append((bi, f"{kind}_{'up' if sgn > 0 else 'down'}", float(L[i])))
-        self.events = sorted(ev, key=lambda x: x[0])
-        # ★★2026-10-08 用户裁定: BOS/CHoCH 不再用库的"最近4点单调"口径(用户判例: 06:30 不该有、
-        #   10:00 该有、02:00 该有), 改为【跟踪当前有效结构位】:
-        #   ① 只认"大"摆动点(位移≥STRUCT_MIN_SWING_PCT%); ② 收盘破当前有效结构位才算事件;
-        #   ③ 顺趋势方向破 = BOS, 逆方向破 = CHoCH(并翻转趋势); ④ 破过的位不再重复报。
-        _mp = float(getattr(C, "STRUCT_MIN_SWING_PCT", 0.20)) / 100.0
+            # ★2026-10-08 参照 LudoGH68《SMC Structures and FVG》(TradingView) 重写:
+        #   它的结构高/低点 = 【左右各1根】的 pivot(不是 swing=3), 且在回溯窗口内取
+        #   【最高/最低】的那个(不是"最近一个")。破位要求实体/收盘突破 + 破位那根晚于结构点。
+        _LB = int(getattr(C, "STRUCT_LOOKBACK", 40))
         _sig = []
-        for _s in self.swings:
-            _opp = None
-            for _t in self.swings:
-                if _t[0] < _s[0] and ((_s[1] == "H" and _t[1] == "L") or (_s[1] == "L" and _t[1] == "H")):
-                    _opp = _t[2]
-            if _opp is None or abs(_s[2] - _opp) / max(abs(_s[2]), 1e-9) >= _mp:
-                _sig.append(_s)
+        for _i in range(2, len(candles)):
+            if candles[_i].high > candles[_i - 1].high and candles[_i - 1].high >= candles[_i - 2].high:
+                _sig.append((_i, "H", float(candles[_i].high)))
+            if candles[_i].low < candles[_i - 1].low and candles[_i - 1].low <= candles[_i - 2].low:
+                _sig.append((_i, "L", float(candles[_i].low)))
+        _sig.sort(key=lambda x: x[0])
         _ev2, _trend, _used = [], None, set()
         for _k in range(len(candles)):
             _c = float(candles[_k].close)
             _hi = _li = None
             for _s in _sig:
-                if _s[0] >= _k:          # 只用到【本根之前】已确认的摆动点
+                if _s[0] >= _k:                       # 只用到【本根之前】已确认的 pivot
                     break
+                if _s[0] < _k - _LB:
+                    continue
                 if _s[1] == "H":
-                    _hi = _s
+                    if _hi is None or _s[2] >= _hi[2]: # 窗口内取【最高】的 pivot
+                        _hi = _s
                 else:
-                    _li = _s
+                    if _li is None or _s[2] <= _li[2]: # 取【最低】的 pivot
+                        _li = _s
             if _hi is None or _li is None:
                 continue
             if _trend is None:
