@@ -32,7 +32,8 @@ class EntryEngine:
     def __init__(self):
         self.last_signal_bar = -99
 
-    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None):
+    def evaluate(self, candles, se, le, htf_trend, bar_i=None, ltf_se=None, ltf_le=None, ltf_candles=None,
+                 htf_swings=None):
         """入口分发(★2026-10-06): 按 C.IFVG_MODE 选择模型
            "off"  = 仅 FVG 回踩模型(现行)
            "add"  = FVG 无信号时, 再用 IFVG 反转模型补一个信号(增量, 不改现有信号)
@@ -54,7 +55,7 @@ class EntryEngine:
         if str(getattr(C, "SIGNAL_MODE", "chain")).lower() == "fvg_both":
             steps = {}
             self.last_steps = steps
-            return self._fvg_both_signal(se, le, ltf_se, ltf_le, ltf_candles, steps)
+            return self._fvg_both_signal(se, le, ltf_se, ltf_le, ltf_candles, steps, htf_swings=htf_swings)
         _mode = str(getattr(C, "IFVG_MODE", "off")).lower()
         _cm = str(getattr(C, "FVG_COUNTER_MODE", "off")).lower()
         if _mode == "only":
@@ -136,26 +137,32 @@ class EntryEngine:
                f"{f['bottom']:.1f}~{f['top']:.1f}{_ev}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
 
-    def _resolve_tp(self, d, px, risk, ltf_se):
+    def _resolve_tp(self, d, px, risk, ltf_se, htf_swings=None):
         """止盈口径统一出口(★2026-10-07 用户要求: 止盈改"打结构位")
            "pct"    = 固定百分比(±TP_PCT%)
            "struct" = 结构位: 多单打到【上方最近的已确认摆动高点】, 空单打到【下方最近的摆动低点】;
-                      距入场不足 TP_STRUCT_MIN_PCT% 的摆动点跳过(避免贴脸)，没有可用目标则退回 pct
+                      ★大周期优先(2026-10-07 用户裁定"用 1~4 小时的结构位"):
+                        用传入的 htf_swings(1H/4H 摆动极值池)取【最近且距入场 ≥ TP_STRUCT_MIN_PCT%】的那个;
+                        大周期取不到 → 退回 15m 摆动点; 都没有 → 退回 pct。
            "rr"     = 按 R 倍数
         """
         mode = str(getattr(C, "TP_MODE", "pct")).lower()
         _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
         if mode == "struct":
             _mp = float(getattr(C, "TP_STRUCT_MIN_PCT", 0.5)) / 100.0
-            sw = getattr(ltf_se, "swings", []) or []
+            _pool = list(htf_swings or [])
+            _src = "struct(大周期)"
+            if not _pool:                                  # 大周期没给/取不到 → 退回 15m 摆动点
+                _pool = list(getattr(ltf_se, "swings", []) or [])
+                _src = "struct(15m)"
             if d == "long":
-                _c = [x[2] for x in sw if x[1] == "H" and x[2] > px * (1 + _mp)]
+                _c = [x[2] for x in _pool if x[1] == "H" and x[2] > px * (1 + _mp)]
                 if _c:
-                    return min(_c), "struct"
+                    return min(_c), _src
             else:
-                _c = [x[2] for x in sw if x[1] == "L" and x[2] < px * (1 - _mp)]
+                _c = [x[2] for x in _pool if x[1] == "L" and x[2] < px * (1 - _mp)]
                 if _c:
-                    return max(_c), "struct"
+                    return max(_c), _src
             return (px * (1 + _pp) if d == "long" else px * (1 - _pp)), "pct(退回)"
         if mode == "rr":
             _rr = float(C.TP_RR)
@@ -256,7 +263,7 @@ class EntryEngine:
                f"{f['bottom']:.1f}~{f['top']:.1f}")
         return EntrySignal(d, px, sl, tp, _rz, steps, "normal", 1)
 
-    def _fvg_both_signal(self, se, le, ltf_se, ltf_le, ltf_candles, steps):
+    def _fvg_both_signal(self, se, le, ltf_se, ltf_le, ltf_candles, steps, htf_swings=None):
         """★2026-10-07 用户裁定【两侧独立】（SIGNAL_MODE="fvg_both"）:
         多/空各自维护 —— 只要某一侧的缺口【没被反向缺口接管】(还"活着"), 价格首次探进它,
         就按【该缺口自己的方向】提示; 不再让"最近一次交接"把方向整个盖掉。
@@ -355,7 +362,7 @@ class EntryEngine:
         risk = (px - sl) if d == "long" else (sl - px)
         if risk <= 0:
             steps["fvgb"] = "几何无效(price已在缺口外)"; return None
-        tp, _src = self._resolve_tp(d, px, risk, _se)
+        tp, _src = self._resolve_tp(d, px, risk, _se, htf_swings=htf_swings)
         rr = abs(tp - px) / max(risk, 1e-9)
         steps["fvgb"] = {"dir": d, "fvg": (round(float(f["bottom"]), 2), round(float(f["top"]), 2)),
                          "mode": "两侧独立(缺口未被反向接管)", "stop_src": _stop_src,
