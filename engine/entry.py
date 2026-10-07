@@ -53,6 +53,10 @@ class EntryEngine:
         _pp = float(getattr(C, "TP_PCT", 1.0)) / 100.0
         if mode == "struct":
             _mp = float(getattr(C, "TP_STRUCT_MIN_PCT", 0.5)) / 100.0
+            # ★2026-10-08: 可选「目标至少要够得着风险」= TP_STRUCT_MIN_RR × 止损距离(默认 0=关)
+            _rr_min = float(getattr(C, "TP_STRUCT_MIN_RR", 0.0) or 0.0)
+            if _rr_min > 0 and px:
+                _mp = max(_mp, _rr_min * abs(float(risk)) / float(px))
             _pool = list(htf_swings or [])
             _src = "struct(大周期)"
             if not _pool:                                  # 大周期没给/取不到 → 退回 15m 摆动点
