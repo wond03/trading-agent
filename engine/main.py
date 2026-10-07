@@ -16,6 +16,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
 WECOM = os.environ.get(C.WECOM_WEBHOOK_ENV, "")
 DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
+_TZ = datetime.timezone(datetime.timedelta(hours=8))   # 北京时间(GitHub Actions 跑在 UTC)
 CAPITAL_USD = float(os.environ.get("CAPITAL_USD", "100"))     # 账户总资金(★2026-10-06 用户明确: 100 USDT)
 _DEGRADE = set()   # ★2026-10-05: 本轮发生"降级到 Gate 现货"的品种(供 run_once 汇总告警)
 
@@ -250,6 +251,10 @@ def build_daily_report(state, now_bj):
     except Exception as e:
         print(f"[诊断异常] {e}")
 
+    _bl = (state.get("blocked") or {}).get(now_bj.strftime("%Y-%m-%d")) or []
+    if _bl:
+        L += ["", f"**🚫 今日被挡（{len(_bl)}）** —— 只看不推：这些是【缺口被探进、但被某道过滤否掉】的"]
+        L += [f"· {x}" for x in _bl[-8:]]
     L += ["", f"_{C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_",
           ("_🧪 运行模式：只提示、不下单（DRY_RUN=1）_" if DRY_RUN
            else "_⚡ 运行模式：模拟盘自动下单（DRY_RUN=0）_")]
@@ -973,6 +978,19 @@ def run_once():
                 _hs = _htf_swings_for(client, inst_id)      # ★大周期(1H/4H)摆动池 → 止盈"打结构位"
                 sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le,
                                   ltf_candles=ltf_candles, htf_swings=_hs)
+                # ★2026-10-08 用户裁定: 把"被挡下的机会"记进日报(只记真实发生的)
+                _bk = (getattr(ee, "last_steps", {}) or {}).get("fvgb_blocked") or []
+                if _bk:
+                    _day = datetime.datetime.now(_TZ).strftime("%Y-%m-%d")
+                    _d = state.setdefault("blocked", {})
+                    for _k in [k for k in _d if k != _day][:50]:      # 只留当天, 旧的清掉
+                        _d.pop(_k, None)
+                    _lst = _d.setdefault(_day, [])
+                    _hm = datetime.datetime.now(_TZ).strftime("%H:%M")
+                    for _r in _bk:
+                        _e = f"`{_hm}` {inst_id.replace('-USDT-SWAP','')} {_r}"
+                        if _e not in _lst:
+                            _lst.append(_e)
                 if sig is None:
                     print(f"[无信号] {inst_id} {plabel} → {why_no_signal(ee)}")
                 fp = None
