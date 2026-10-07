@@ -288,3 +288,10 @@ WECOM_WEBHOOK_ENV = "WECOM_WEBHOOK"
 #   并在配置了 IMA_OPENAPI_* 凭据时, best-effort 同步到 知识库 wind / 05-运行日报。
 KB_WIND_ID = "w_SEcqwVLdF6JKMFKUq73j75ULEcOcqGUfsLQC_35f4="   # 知识库 wind
 KB_DAILY_FOLDER = "folder_7510739656931312"                   # wind/05-运行日报
+
+# ---------- ★2026-10-07 (用户裁定): 诊断统计起点 ----------
+#   日报里的「🔬 诊断」只统计【现行模型上线之后】的平仓。
+#   原因: history 里的成交横跨 OKX旧链 → 1H+15m → fvg_touch/fvg_handover → fvg_both 好几个版本,
+#   10-02 那笔 +10.82U 的旧模型大单把均盈撑到 +2.21U → 得出"期望为正"的假象(剔掉后是负期望)。
+#   ⚠️ 每次【实质性改模型】(信号模式/结构尺子/过滤条件/止损止盈口径)后, 把这里改成改动完成的时间。
+STATS_SINCE = "2026-10-07 06:11"
