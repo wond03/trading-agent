@@ -184,8 +184,8 @@ SIGNAL_MODE = "fvg_both"      # "chain"=旧四步链 / "fvg_touch"=FVG回踩 / "
 #   ③"止损几乎没有什么可靠的位置" = 止损要落在结构位外侧(★待用户确认口径, 暂未实现)
 FVGB_WICK_ONLY = True        # ② 回踩必须【影线】探进缺口; 实体(开收区间)压进缺口 → 不做
 FVGB_REJECT_LONG_WICK = True # ① 入场前出现【长上影】→ 不做多(对称: 【长下影】→ 不做空)
-FVGB_WICK_RATIO = 1.5        # 影线 >= 实体 × 该倍数, 且 >= 价格 × FVGB_WICK_MIN_PCT% 才算"长影线"
-FVGB_WICK_MIN_PCT = 0.08
+FVGB_WICK_RATIO = 2.0        # 影线 >= 实体 × 该倍数, 且 >= 价格 × FVGB_WICK_MIN_PCT% 才算"长影线"
+FVGB_WICK_MIN_PCT = 0.12
 FVGB_KEEP_BARS = 3        # ★2026-10-07 用户裁定「信号保留 2~3 根」: 首次探进后仍在此根数内有效
                           #   (某轮漏跑不至于丢信号; 推过的信号由 pushed_fp 指纹去重, 不会重复推)
 # ---------- ★2026-10-07 用户口径③: 止损落在"关键位", 且该位必须还【有效】 ----------
