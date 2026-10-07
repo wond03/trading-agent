@@ -8,8 +8,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791330348.3340068,
- "run_count_today": 40,
+ "last_run_ts": 1791331271.7500236,
+ "run_count_today": 41,
  "history": [
   {
    "type": "signal",
@@ -412,9 +412,9 @@
   "1-15|BTC-USDT-SWAP|long|85120",
   "1-15|BTC-USDT-SWAP|long|85230"
  ],
- "daily_report_date": "2026-10-06",
+ "daily_report_date": "2026-10-07",
  "market_snapshot": [
-  "· **BTC** 下跌 | FVG 85,583~85,592 | 扫下85,369(3点)",
+  "· **BTC** 下跌 | FVG 85,493~85,508 | 扫下85,369(3点)",
   "· **黄金** 下跌 | FVG 4,163~4,166 | 扫上4,169(2点)"
  ],
  "pushed_watch": [],
