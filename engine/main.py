@@ -245,7 +245,7 @@ def build_daily_report(state, now_bj):
     # ③ 诊断(一行结论)
     try:
         from auto_calibrator import analyze
-        d = analyze(state.get("history", []))
+        d = analyze(state.get("history", []), since=getattr(C, "STATS_SINCE", None))
         L += ["", f"**🔬 诊断** {d.get('brief') or d['summary']}"]
     except Exception as e:
         print(f"[诊断异常] {e}")
