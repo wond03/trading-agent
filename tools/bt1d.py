@@ -42,6 +42,37 @@ def cd(i, n):
     return [CAND[k] for k in keys[max(0, i - n + 1): i + 1]]
 
 
+# ---------- ★2026-10-07 止盈"打结构位"用【大周期 1H/4H】摆动 —— 只喂【当时已收盘】的 htf K线(防未来函数) ----------
+_TFS = getattr(C, "TP_STRUCT_TF", ("1H", "4H"))
+_TFS = (_TFS,) if isinstance(_TFS, str) else tuple(_TFS)      # 允许命令行传 TP_STRUCT_TF=4H
+_SEC = {"15m": 900, "1H": 3600, "4H": 14400}
+_htf_data = {}
+for _tf in _TFS:
+    _sec = _SEC.get(_tf, 3600)
+    try:
+        _dd = json.load(open(os.path.join(HERE, "_cache_weex", f"{INST}_{_tf}.json")))
+        _kk = sorted(int(x) for x in _dd)
+        _htf_data[_tf] = (_sec, [(x, Candle(x, *_dd[str(x)][:5])) for x in _kk], {})
+    except Exception:
+        pass
+
+
+def htf_swings_at(ts15):
+    """返回该 15m 决策时刻【已收盘】的 1H/4H 摆动极值池; 无 → None"""
+    out = []
+    for _tf, (_sec, _rows, _cache) in _htf_data.items():
+        _closed = [c for (t, c) in _rows if t + _sec <= ts15][-400:]
+        if len(_closed) < 22:
+            continue
+        _key = _closed[-1].ts
+        if _key not in _cache:
+            _s2 = StructureEngine(int(getattr(C, "TP_STRUCT_SWING", 10)))
+            _s2.process(_closed)
+            _cache[_key] = list(getattr(_s2, "swings", []) or [])
+        out += _cache[_key]
+    return out or None
+
+
 def T(ts):
     return datetime.datetime.fromtimestamp(ts, CST).strftime("%m-%d %H:%M")
 
@@ -60,7 +91,8 @@ for i in range(max(0, len(keys) - N), len(keys)):
     lle = LiquidityEngine(); lle.process(c200)
     hse = StructureEngine(C.SWING_LEN_HTF); hse.process(c200); htf = hse.trend
     ee = EntryEngine()
-    sig = ee.evaluate(c300, se, le, htf, bar_i=len(c300) - 1, ltf_se=lse, ltf_le=lle, ltf_candles=c200)
+    sig = ee.evaluate(c300, se, le, htf, bar_i=len(c300) - 1, ltf_se=lse, ltf_le=lle, ltf_candles=c200,
+                      htf_swings=htf_swings_at(keys[i]))
     if not sig:
         continue
     # 向前追踪 (最多 96 根 15m = 24h), 同根内先判止损(保守)
