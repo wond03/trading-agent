@@ -250,7 +250,9 @@ def build_daily_report(state, now_bj):
     except Exception as e:
         print(f"[诊断异常] {e}")
 
-    L += ["", f"_{C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_"]
+    L += ["", f"_{C.MARGIN_PER_TRADE:.0f}U/单 · {C.LEVERAGE_FIXED}倍_",
+          ("_🧪 运行模式：只提示、不下单（DRY_RUN=1）_" if DRY_RUN
+           else "_⚡ 运行模式：模拟盘自动下单（DRY_RUN=0）_")]
     return "\n".join(L)
 
 def _save_and_sync_daily(report_text, now_bj):
@@ -962,7 +964,7 @@ def run_once():
                         fp = f"{pname}|{inst_id}|{sig.direction}|{round(sig.sl / 10) * 10}"
                     _now = time.time()
                     state["pushed_fp"] = {k: v for k, v in state.get("pushed_fp", {}).items()
-                                          if _now - v < 6 * 3600}          # 指纹 6 小时过期
+                                          if float(v) > _now}          # 值 = 【过期时刻】(旧格式=推送时刻 → 自动过期)
                     if fp in state["pushed_fp"]:
                         print(f"[跳过重复信号] {fp}")
                         sig = None
@@ -1000,7 +1002,10 @@ def run_once():
                         # ★2026-10-05: 用【本单真实数量】把止盈换算成"浮盈 TP_USD 美元"的价位(口径见 C.TP_MODE)
                         # ★2026-10-06: "liq"(前方流动性) 口径已在 entry.py 按 1H 摆动点算好 →
                         #   这里【不覆盖】; 只有 "usd"/"rr" 需要按【真实成交数量】重算才覆盖
-                        if str(getattr(C, "TP_MODE", "rr")).lower() not in ("liq", "liq2r"):
+                        # ★2026-10-07: entry.py 已按 TP_MODE 算好止盈(pct/struct 都是【绝对价位】) →
+                        #   这两种【不再在这里覆盖】(旧写法把 pct/struct 悄悄换成了 rr, 是隐藏 bug:
+                        #   用户要求的"打结构位"会被无声改回固定盈亏比)
+                        if str(getattr(C, "TP_MODE", "rr")).lower() not in ("liq", "liq2r", "pct", "struct"):
                             sig.tp = tp_target(sig.entry, sig.direction, sl_use, size_coin=size["lots"])
                         line = format_signal(inst_id, sig, size, sl_use, liq_px, prof_label=plabel)
                         _opened = False
@@ -1089,8 +1094,10 @@ def run_once():
                                 "detail": f"{_nmx}{_sdx} · 进{fmt_price(sig.entry)} 损{fmt_price(sl_use)} 标{fmt_price(sig.tp)} · RR1:{_rrx:.0f}"})
                     else:
                         add("哨兵", f"⚠️ **`{plabel}` {inst_id} 信号被风控拦截**\n" + "\n".join(f"· {d}" for d in detail if "❌" in d))
-                    # 记录指纹(去重): dict[fp] = 时间戳, 按 6 小时过期
-                    state.setdefault("pushed_fp", {})[fp] = time.time()
+                    # 记录指纹(去重): dict[fp] = 【过期时刻】
+                    #   ★2026-10-07: 真推出去的信号占 6 小时(同缺口不再重复提示);
+                    #   被风控拦截的只占 20 分钟 —— 既不刷屏, 也不把后续的真推送挡在门外。
+                    state.setdefault("pushed_fp", {})[fp] = time.time() + (6 * 3600 if ok else 20 * 60)
                 # ---- 持仓管理 (出场引擎; 按方案过滤) ----
                 for p in list(state["positions"]):
                     if p["inst"] != inst_id or p.get("profile", "4H+1H") != pname:
