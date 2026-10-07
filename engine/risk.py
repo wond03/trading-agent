@@ -44,10 +44,13 @@ class RiskManager:
                 "③止盈已算出": bool(_d.get("tp")),
             }
         else:
-            # ★兜底(2026-10-07 补): 任何"新模型"的 steps(带 fvgb/fvgh/fvgt 字典)都不该去读旧四步链的键。
-            #   教训: 只按 SIGNAL_MODE 白名单判断, 新加一个模式忘了登记 → 又掉回旧分支 → 全部误报。
-            _nd = next((s[k] for k in ("fvgb", "fvgh", "fvgt") if isinstance(s.get(k), dict)), None)
-            if _nd is not None:
+            # ★兜底(2026-10-07 二次加固): 判据不看"新模式叫什么名字", 而看【steps 里有没有旧四步链的键】——
+            #   没有 htf_trend / trigger ⇒ 必是【任何】新模型 ⇒ 一律按新口径判, 绝不去读旧键。
+            #   教训: 白名单式判断(按 SIGNAL_MODE 枚举)曾两次漏登记新模型 → 每个真信号都被误报"被拦截"。
+            if ("htf_trend" not in s) and ("trigger" not in s):
+                # 取 steps 里任意"信号载荷"字典 —— 【不限定键名】, 未来任何新模型都能兜住
+                _nd = next((v for v in s.values()
+                            if isinstance(v, dict) and ("sl" in v and "tp" in v)), None) or {}
                 cond = {
                     "①回踩形态成立": bool(_nd.get("fvg")),
                     "②止损/止盈已算出": bool(_nd.get("sl")) and bool(_nd.get("tp")),
