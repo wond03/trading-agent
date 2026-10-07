@@ -486,6 +486,27 @@ def tp_target(entry_px, direction, sl_px, size_coin=None, liq_px=None):
     return tp_from_rr(entry_px, direction, sl_px)
 
 
+def _htf_swings_for(client, inst_id):
+    """★2026-10-07 用户裁定: 止盈"打结构位"改用【大周期(1H/4H)】的摆动极值(池化)。
+    返回 [(idx, 'H'/'L', price), ...]; 全取不到 → None
+    ⇒ entry._resolve_tp 收到 None 会退回 15m 摆动点、再退 ±1%(绝不因取数失败而拒发信号)。"""
+    out = []
+    _sw = int(getattr(C, "TP_STRUCT_SWING", 10))
+    _TFS = getattr(C, "TP_STRUCT_TF", ("1H", "4H"))
+    _TFS = (_TFS,) if isinstance(_TFS, str) else tuple(_TFS or ())
+    for _tf in _TFS:
+        try:
+            _c = fetch_candles(client, inst_id, limit=400, tf=_tf)
+            if not _c or len(_c) < _sw * 2 + 2:
+                continue
+            _se = StructureEngine(_sw)
+            _se.process(_c)
+            out += list(getattr(_se, "swings", []) or [])
+        except Exception as e:
+            print(f"[大周期结构位] {inst_id} {_tf} 取数/算结构失败: {e}")
+    return out or None
+
+
 def _ex_liqpx(client, inst_id, pos_side):
     """取【交易所返回的爆仓价 liqPx】(2026-10-03 用户裁定: 不允许本地臆算)。
     取不到(净持仓模式/演示盘未返回等) → 返回 None, 由调用方如实告知, 绝不编一个数。"""
@@ -949,7 +970,9 @@ def run_once():
                 # ---- 新信号检测 (指纹含方案, 每方案独立去重) ----
                 ee = EntryEngine()
                 ee.inst = inst_id       # ★2026-10-06: 分品种参数(扫荡最小刺破幅度)
-                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le, ltf_candles=ltf_candles)
+                _hs = _htf_swings_for(client, inst_id)      # ★大周期(1H/4H)摆动池 → 止盈"打结构位"
+                sig = ee.evaluate(candles, se, le, htf, bar_i=len(candles) - 1, ltf_se=ltf_se, ltf_le=ltf_le,
+                                  ltf_candles=ltf_candles, htf_swings=_hs)
                 if sig is None:
                     print(f"[无信号] {inst_id} {plabel} → {why_no_signal(ee)}")
                 fp = None
