@@ -17,7 +17,6 @@ class LiquidityEngine:
         self.fvgs = []            # 活跃FVG: {idx, kind:'bull'/'bear', top, bottom, filled, covered, born_idx}
         self.sweeps = []          # 截取事件: (idx, dir, level, points_swept, kind)
         self.events = []
-        self.ifvg_events = []     # ★视频《IFVG的正确用法》: 被【反向实体收盘穿越】的FVG → IFVG 反转事件
 
     def process(self, candles):
         self._detect_fvg_lib(candles)
@@ -31,7 +30,6 @@ class LiquidityEngine:
         (库自带的 mitigated = "被触碰", 口径过松: 一到 FVG 就判失效 → 无法作为入场参考, 故不用它)"""
         n = len(candles)
         self.fvgs = []
-        self.ifvg_events = []
         if n < 3:
             return
         r = SMC.smc.fvg(ohlc_df(candles), join_consecutive=False)
@@ -61,27 +59,9 @@ class LiquidityEngine:
             if flip_idx is not None:
                 # ★2026-10-06 视频《IFVG的正确用法》: "被实体收盘穿越"不是销毁, 而是【角色反转成反向入场区】
                 _fd = "bear" if F[i] == 1 else "bull"     # 多头缺口被向下穿过 → 反转方向=看空
-                self.ifvg_events.append({"src_idx": i, "src_kind": "bull" if F[i] == 1 else "bear",
-                                         "top": top, "bottom": bot, "ce": (top + bot) / 2.0,
-                                         "flip_idx": flip_idx, "dir": _fd})
                 self.events.append((flip_idx, f"iFVG_{_fd}_flip", bot, top))
-        self.ifvg_events = self.ifvg_events[-200:]
         self.fvgs = [f for f in out if not f["filled"] and (n - 1 - f["idx"]) <= 100]
 
-    def ifvg_bull_bear_flip(self):
-        """规则B4: 下跌FVG出现后 3~8根 内被实体向上穿过(iFVG_bull_flip) → 牛熊转换信号"""
-        for e in self.events:
-            if e[1] != "iFVG_bull_flip":
-                continue
-            i = e[0]
-            near = [f for f in self.events
-                    if f[1] == "FVG_bear" and C.IFVG_CONFIRM_BARS[0] <= i - f[0] <= C.IFVG_CONFIRM_BARS[1]]
-            if near:
-                return {"signal": "bull_bear_flip", "at": i,
-                        "born": near[-1][0], "bars": i - near[-1][0]}
-        return None
-
-    # ---- 流动性截取 (规则A11影线vs实体 + B5双点) ----
     def _zones(self, pts, kind, tol):
         """同向 swing 点按价格聚簇: 价差 <= tol 视为同一"止损密集区"(双顶/双底/等高)
         返回 [(level, count)] ; level = 簇内最极端价 (H 取最高 / L 取最低)"""
@@ -185,6 +165,5 @@ class LiquidityEngine:
         return {
             "active_fvgs": active[-6:],
             "recent_sweeps": self.sweeps[-6:],
-            "ifvg_flip": self.ifvg_bull_bear_flip(),
             "events_tail": self.events[-8:],
         }
