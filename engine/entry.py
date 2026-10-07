@@ -104,6 +104,11 @@ class EntryEngine:
             return False
 
         hit = []
+        _blk = []          # ★2026-10-08: 记录"首次探进但被否掉"的真实原因 → 进日报「今日被挡」
+
+        def _tag(f, why):
+            _kd = "看涨" if f["kind"] == "bull" else "看跌"
+            _blk.append(f"{_kd}缺口 {f['bottom']:.1f}~{f['top']:.1f} ← {why}")
         for f in _fvgs:
             if _taken_over(f):
                 continue                                          # 已被反向缺口接管
@@ -127,9 +132,9 @@ class EntryEngine:
             if getattr(C, "FVGB_WICK_ONLY", True):
                 _bl, _bh = min(_bar.open, _bar.close), max(_bar.open, _bar.close)
                 if f["kind"] == "bull" and _bl <= float(f["top"]):
-                    continue
+                    _tag(f, "②实体压进缺口"); continue
                 if f["kind"] == "bear" and _bh >= float(f["bottom"]):
-                    continue
+                    _tag(f, "②实体压进缺口"); continue
             # ★用户理由①: 入场前出现"长上影"(多)/"长下影"(空) = 被拒绝 → 不做(只看到入场那根为止)
             if getattr(C, "FVGB_REJECT_LONG_WICK", True):
                 _r = float(getattr(C, "FVGB_WICK_RATIO", 1.5))
@@ -143,8 +148,9 @@ class EntryEngine:
                     if f["kind"] == "bear" and (min(b.open, b.close) - b.low) >= _th:
                         _bad = True; break
                 if _bad:
-                    continue
+                    _tag(f, "①长影线拒绝"); continue
             hit.append((f, _bar))
+        steps["fvgb_blocked"] = _blk
         steps["fvgb_n"] = len(hit)
         if not hit:
             steps["fvgb"] = "两侧均无新回踩(无既活着又被探进的缺口)"; return None
@@ -155,6 +161,7 @@ class EntryEngine:
         if str(getattr(C, "STOP_MODE", "fvg_left")).lower() == "key":
             _ks, _stop_src = self._key_stop(d, px, _se, _cd, _le)
             if _ks is None:                                  # ★口径③: 找不到合格止损位 → 这笔不做
+                _tag(f, f"③止损无可靠位（{_stop_src}）")
                 steps["fvgb"] = f"止损无可靠位 → 不做（{_stop_src}）"; return None
             sl = _ks * (1 - C.SL_BUFFER_PCT) if d == "long" else _ks * (1 + C.SL_BUFFER_PCT)
         else:
