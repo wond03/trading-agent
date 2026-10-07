@@ -299,23 +299,32 @@ class EntryEngine:
             _fi = int(f["idx"])
             if (n - 1) < _fi + 1:
                 continue                                          # 缺口尚未形成
-            if not _pen(bar, f):
-                continue                                          # 本根未探进缺口
-            if any(_pen(_cd[k], f) for k in range(_fi + 1, n - 1)):
-                continue                                          # 之前已探进过 → 非"首次回踩"
+            # ★2026-10-07 用户裁定「信号保留 2~3 根」: 本根【或最近 K 根内】的首次探进都算 ——
+            #   某轮漏跑(超时/节流/引擎未跑到)也不至于把这条信号丢掉;
+            #   进场价仍取【首次探进那根】的收盘(保留期内不变 → 同一条信号不会变形)。
+            _K = max(1, int(getattr(C, "FVGB_KEEP_BARS", 3)))
+            _tb = None
+            for _b in range(max(_fi + 1, (n - 1) - _K + 1), n):
+                if _pen(_cd[_b], f):
+                    _tb = _b; break
+            if _tb is None:
+                continue                                          # 最近 K 根内未探进缺口
+            if any(_pen(_cd[k], f) for k in range(_fi + 1, _tb)):
+                continue                                          # 更早之前已探进过 → 非"首次回踩"
+            _bar = _cd[_tb]
             # ★用户理由②: 回踩必须是【影线】探进缺口, 实体压进缺口 = 真卖/买压 → 不做
             if getattr(C, "FVGB_WICK_ONLY", True):
-                _bl, _bh = min(bar.open, bar.close), max(bar.open, bar.close)
+                _bl, _bh = min(_bar.open, _bar.close), max(_bar.open, _bar.close)
                 if f["kind"] == "bull" and _bl <= float(f["top"]):
                     continue
                 if f["kind"] == "bear" and _bh >= float(f["bottom"]):
                     continue
-            # ★用户理由①: 入场前出现"长上影"(多)/"长下影"(空) = 被拒绝 → 不做
+            # ★用户理由①: 入场前出现"长上影"(多)/"长下影"(空) = 被拒绝 → 不做(只看到入场那根为止)
             if getattr(C, "FVGB_REJECT_LONG_WICK", True):
                 _r = float(getattr(C, "FVGB_WICK_RATIO", 1.5))
                 _mp = float(getattr(C, "FVGB_WICK_MIN_PCT", 0.08)) / 100.0
                 _bad = False
-                for k in range(_fi + 1, n):
+                for k in range(_fi + 1, _tb + 1):
                     b = _cd[k]
                     _th = max(_r * abs(b.close - b.open), _mp * b.close)
                     if f["kind"] == "bull" and (b.high - max(b.open, b.close)) >= _th:
@@ -324,11 +333,11 @@ class EntryEngine:
                         _bad = True; break
                 if _bad:
                     continue
-            hit.append(f)
+            hit.append((f, _bar))
         steps["fvgb_n"] = len(hit)
         if not hit:
             steps["fvgb"] = "两侧均无新回踩(无既活着又被探进的缺口)"; return None
-        f = sorted(hit, key=lambda x: int(x["idx"]))[-1]
+        f, bar = sorted(hit, key=lambda x: int(x[0]["idx"]))[-1]
         d = "long" if f["kind"] == "bull" else "short"
         px = bar.close
         _stop_src = "缺口左根K线极值"
