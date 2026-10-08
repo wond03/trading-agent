@@ -1,23 +1,5 @@
 {
- "positions": [
-  {
-   "inst": "BTC-USDT-SWAP",
-   "direction": "short",
-   "entry": 82954.1,
-   "sl": 83528.64344999999,
-   "sl0": 83528.64344999999,
-   "tp": 82504.6,
-   "size": 0.00301371,
-   "ratio": 1.0,
-   "risk_free": false,
-   "tp1_hit": false,
-   "leverage": 50.0,
-   "profile": "15",
-   "run_id": 1791448261.8124347,
-   "simulated": true,
-   "opened": 1791448263
-  }
- ],
+ "positions": [],
  "daily": {
   "date": "2026-10-08",
   "trades": 0,
@@ -26,8 +8,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791457262.1166244,
- "run_count_today": 52,
+ "last_run_ts": 1791458152.459049,
+ "run_count_today": 53,
  "history": [
   {
    "type": "signal",
@@ -435,6 +417,15 @@
    "entry": 4125.27,
    "exit": 4113.56,
    "detail": "[15m] 黄金 LONG -0.71U"
+  },
+  {
+   "type": "exit",
+   "ts": 1791458155.1471214,
+   "profile": "15",
+   "pnl": 1.35,
+   "entry": 82954.1,
+   "exit": 82504.6,
+   "detail": "[15m] BTC SHORT +1.35U"
   }
  ],
  "pushed_signals": [
@@ -491,7 +482,8 @@
    "`16:45` XAU 看涨缺口 4122.0~4126.9 ← ②实体压进缺口",
    "`17:01` XAU 看涨缺口 4122.0~4126.9 ← ②实体压进缺口",
    "`17:15` XAU 看涨缺口 4122.0~4126.9 ← ②实体压进缺口",
-   "`19:01` XAU 看跌缺口 4119.9~4123.0 ← ②实体压进缺口"
+   "`19:01` XAU 看跌缺口 4119.9~4123.0 ← ②实体压进缺口",
+   "`19:15` XAU 看跌缺口 4119.9~4123.0 ← ②实体压进缺口"
   ]
  }
 }
