@@ -8,8 +8,8 @@
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791490547.5557384,
- "run_count_today": 18,
+ "last_run_ts": 1791491454.4599655,
+ "run_count_today": 19,
  "history": [
   {
    "type": "signal",
@@ -460,7 +460,7 @@
  "daily_report_date": "2026-10-08",
  "market_snapshot": [
   "· **BTC** 下跌 | FVG 81,589~81,643 | 扫下81,717(1点)",
-  "· **黄金** 上涨 | FVG 4,111~4,114 | 扫下4,129(1点)"
+  "· **黄金** 上涨 | FVG 4,130~4,131 | 扫下4,129(1点)"
  ],
  "pushed_watch": [],
  "fail_streak": 0,
