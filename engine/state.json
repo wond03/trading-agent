@@ -19,15 +19,15 @@
   }
  ],
  "daily": {
-  "date": "2026-10-09",
+  "date": "2026-10-10",
   "trades": 0,
   "by_profile": {
    "15": 0
   }
  },
  "last_signal_bar": {},
- "last_run_ts": 1791560745.696867,
- "run_count_today": 96,
+ "last_run_ts": 1791561665.8299375,
+ "run_count_today": 1,
  "history": [
   {
    "type": "signal",
@@ -524,9 +524,7 @@
   "XAU-USDT-SWAP": 50.0
  },
  "broker": "weex",
- "pushed_fp": {
-  "15|XAU-USDT-SWAP|short|4200": 1791559857.766101
- },
+ "pushed_fp": {},
  "blocked": {
   "2026-10-09": [
    "`00:01` BTC 看跌缺口 81499.4~82113.2 ← ①长影线拒绝",
